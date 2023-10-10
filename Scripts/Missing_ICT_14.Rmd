@@ -1,30 +1,468 @@
 ---
-title: "Treating Missingness in ICT-usage in Enterprises 2014"
+title: "Treating Missingness in ICT-Usage in Enterprises"
 author: "Luis Carlos Castillo"
 date: "`r Sys.Date()`"
-output: pdf_document
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+params:
+  data_year: "ict_14c"
+  raw_data: "ICT_2014"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r Loading Packages, include=FALSE}
+# load the necessary packages
+library(readr)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(here)
+library(git2r)
+library(visdat)
+library(naniar)
+library(chatgpt)
+library(gptstudio)
+require(devtools)
+library(finalfit)
+library(tidyverse)
+library(kableExtra)
 ```
 
-## Including Plots
+```{r Loading Data, echo=FALSE}
+# Load the environment
+load(here("Scripts", "Environments",  "missing_ict_14.RData"))
 
-You can also embed plots, for example:
+dataset <- get(params$data_year)
+raw <- get(params$raw_data)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## 1. Introduction
+
+This document outlines the treatment of missing data before applying dimensionality reduction using Principal Component Analysis PCA  for the `params$data_year` data frame, which represents the ICT usage in Italian enterprises survey for the year 2014.
+
+### 1.1. Data structure
+
+1.  **Observations:** `r nrow(dataset)`
+
+2.  **Variables:** `r ncol(dataset)`
+
+::: {style="margin-left: +40px;"}
+<details>
+
+<summary>Click to see variables</summary>
+
+```{r variables, echo=FALSE}
+    knitr::kable(vars_87)
+
+```
+
+</details>
+
+<br>
+:::
+
+3.  **Sectors classification before 2017:** `r nlevels(dataset$dom1)` distinct aggregation of sectors
+
+::: {style="margin-left: +40px;"}
+<details>
+
+<summary>Click to see sectors list before 2017</summary>
+
+```{r ateco1, echo=FALSE}
+knitr::kable(ateco_b17)
+
+```
+
+</details>
+
+<br>
+:::
+
+4.  **Sectors classification after 2017:** `r nlevels(dataset$ateco_1)` distinct aggregation of sectors
+
+::: {style="margin-left: +40px;"}
+<details>
+
+<summary>Click to see sectors list after 2017</summary>
+
+```{r ateco2, echo=FALSE}
+knitr::kable(ateco_a17)
+
+```
+
+</details>
+
+<br>
+:::
+
+5.  **Company sizes:** `r nlevels(dataset$clad4)`types based on the number of employees
+
+::: {style="margin-left: +40px;"}
+<details>
+
+<summary>Click to see list of companay size</summary>
+
+```{r size, echo=FALSE}
+knitr::kable(size)
+
+```
+
+</details>
+
+<br>
+:::
+
+6.  **Regions reported:** `r nlevels(dataset$rip)` at the level NUTS 1
+
+::: {style="margin-left: +40px;"}
+<details>
+
+<summary>Click to see list of regions</summary>
+
+```{r regions, echo=FALSE}
+knitr::kable(regions)
+
+```
+
+</details>
+
+<br>
+:::
+
+## 2. Visualization of the raw data
+
+As we can see the raw data contains `r round(prop_miss(raw)*100,1)`% of missingness and 
+`r round(prop_complete(raw)*100,1)`% of complete observations. 
+
+```{r Visualizing Total Missing Data, echo=FALSE}
+vis_miss(raw, warn_large_data = FALSE)
+```
+
+In the subsequent three illustrations, we delve deeper into various segments of the dataset. These visual representations underscore the patterns of missingness, highlighting instances where specific questions were either unanswered or bypassed by the participating companies. As of our current assessment, the precise nature of this missingness remains ambiguous, pending further tests and comprehensive visual analyses.
+
+At this juncture, establishing a definitive threshold for the removal of variables is challenging. Nonetheless, it might be prudent to contemplate excluding variables with missingness exceeding 60 to 70%. Such decisions should, of course, be informed by the inherent characteristics of each variable and a thorough understanding of the missingness mechanism.
+
+```{r Visualizing partial Missing Data1, echo=FALSE}
+vis_miss(raw[, 1:30], warn_large_data = FALSE, show_perc = F)
+
+```
+
+```{r Visualizing partial Missing Data2, echo=FALSE}
+vis_miss(raw[, 31:58], warn_large_data = FALSE, show_perc = F)
+
+```
+
+```{r Visualizing partial Missing Data3, echo=FALSE}
+vis_miss(raw[, 59:86], warn_large_data = FALSE, show_perc = F)
+```
+
+## 3. The nature of missingness 
+
+At this point there are three reasons why data is missing:
+
+**1. Missing Completely at Random MCAR:** This occurs when the probability of missingness is independent of both observed data and the values of the missing data itself. Essentially, the missingness is due to random reasons and is not systematically related to any observed or unobserved variables. For example, if some companies failed to complete a section of questions because the respondent ran out of time or there was an unintentional oversight, and this occurrence is purely random across all types, sizes, and sectors of companies, then the missingness is MCAR. It's akin to a random 'drop out' of data without a specific reason tied to the characteristics of the companies or the values of the questions being unanswered.
+
+**2. Missing At Random (MAR):** This occurs when the probability of missingness depends on other observed data but not on the values of the missing data itself. For example, if larger enterprises consistently skip a section of questions due to their size (and you have information about the size of every enterprise), then the missingness is MAR. You have observed data (enterprise size) that can explain the missingness pattern.
+
+**3. Missing Not At Random (MNAR):** This is when the missingness depends on the values of the missing data itself. For instance, if companies that don't use any cloud computing services skip these questions, then the missingness is related to the fact they don't use these services – information which is unobserved because it's the very thing that's missing.
+
+### 3.1. Missingness by group of variables, regions sectors and sizes
+
+In this dataset, we delve into the patterns of missingness across various dimensions, specifically regions, sectors, and enterprise sizes. This exploration is pivotal for myriad reasons. Different regions, influenced by diverse business climates and technological infrastructures, might showcase unique response patterns. In a similar vein, enterprises from varied sectors could have distinct tendencies to respond to certain queries, particularly those pertaining to technological utilization or industry-specific subtleties. Furthermore, the enterprise size often plays a role in dictating its available resources, capacities, and occasionally, its predisposition to provide or omit particular data. Through an in-depth analysis of the missingness within these parameters, our objective is to decipher inherent patterns or tendencies that can guide our approach to data imputation strategies or other relevant data treatments.
+
+Building on this, the subsequent section offers visual depictions of three specific categories of variables:
+
+1. Website usage by companies, exhibiting 26% missingness. (9 binary variables)
+2. Cloud computing adoption, with a missingness rate of 58%. (9 binary variables)
+3. Cloud computing category of benefits to companies, with a missing rate of 58%. (3 categorical variables)
+4. Percentage of Types of invoices issued, which shows a 30% rate of missingness. (3 numeric variables)
+
+#### 3.1.1. Website usage by companies, by sectors and size 
+
+The high rate of missingness among micro-enterprises in the construction (N11) sector, paired with a similarly high proportion of companies reporting '0' (indicating non-use of websites), suggests that these businesses either:
+
+- Have little to no relevance for using websites in their daily operations and might have opted to skip the questions.
+- Perhaps find the questionnaire or the related section to be less pertinent to their operations.
+
+This leans towards Missing Not At Random (MNAR), since the missingness seems to depend on the underlying (unobserved) value of the variable.
+
+**-Sectoral Differences:**
+
+Different sectors have different digital needs and capabilities. For instance, micro-enterprises in the construction(N11) sector may not see the immediate benefit of having a website, especially if they operate on local, word-of-mouth referrals. In contrast, even small retail traders (N13, N14) might consider a website more essential due to the nature of their business.
+
+**-Company Size Matters:**
+
+It's no surprise that larger companies might have more complete data. They typically have more resources, better-defined processes, and often a more substantial digital presence, making it more likely for them to provide complete information. This observation underscores the importance of considering company size when analyzing missingness and determining imputation strategies.
+
+```{r web missing by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+ggplot(long_data, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Website Services by Sector, Segmented by Size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+#### 3.1.2. Website usage by companies, by sectors and region 
+
+**Regional Patterns:**
+
+The fact that four out of five regions show a consistent pattern suggests that there is a general trend across most regions. However, the island region exhibiting a similar pattern but with a reduced magnitude may be influenced by geographical, infrastructural, or socio-economic factors unique to island regions. For example, businesses on islands might have more localized trade and might not prioritize digital presence as much as those in more urban or mainland areas.
+
+**Consistency Across Sectors:**
+
+It's evident that regardless of the region, certain sectors (construction and wholesale/retail trade) are more prone to report '0' for website use. This further strengthens the notion that certain sectors, regardless of their geographical location, find limited value or relevance in having a website.
+
+The missingness in the website use variable still leans towards MNAR. This is primarily because the decision to skip or not respond to the question (resulting in missing data) seems closely tied to the underlying value that the variable would have taken if it were observed. For instance, a construction firm with no website or no inclination to have one might be more likely to skip the question about website usage.
+
+
+```{r missing by region, echo=FALSE, fig.height=13, fig.width=13}
+
+# Plot with facets by company regions
+ggplot(long_data, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Website Services by Sector, Segmented by Region", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+
+```
+
+
+#### 3.2.1. Cloud computing adoption by companies, by sector and size
+
+**Consistent Missingness in Micro-Enterprises:** For both website and cloud computing usage, the micro-enterprises, especially in sectors like construction and retail trade, have displayed significant missingness. This aligns with the MNAR assumption: smaller businesses, perhaps due to limited resources or perceived irrelevance, might skip questions related to certain technological solutions they don't employ.
+
+```{r cloud missing by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+ggplot(long_data, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Website Services by Sector, Segmented by Size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+
+#### 3.2.2. Cloud computing adoption by companies, by sector and region
+
+**Regional Variation:** The regional patterns highlight specific geographical areas with consistent missingness, suggesting the existence of regional influences on the adoption of cloud computing. For example, the Northeast and Northwest regions display missing values across all sectors, whereas the Island, South, and Center regions show missingness only in certain sectors.
+
+**Specific Sectors:** The salient sectors that display a pattern of missing data across different regions further solidify the notion that certain industries might be less inclined to adopt or even answer questions about cloud computing, possibly due to the nature of their business or their size. For instance, it makes sense for construction and certain traditional trades to potentially have less engagement with cloud computing than more technologically inclined sectors.
+
+Given the evidence, the nature of the missingness for cloud computing appears to be MNAR. The patterns seem to suggest that missingness is not random but likely contingent on some unobserved factors such as a company's actual non-use of cloud computing or perhaps perceptions related to the relevance of cloud computing for their specific sector.
+
+This understanding of MNAR is crucial for imputation strategies. While certain techniques like Multiple Imputation can handle MAR more effectively, MNAR poses more challenges because the missingness mechanism relates to the unobserved data itself. Careful consideration of the underlying reasons for missingness will be crucial in any imputation or modeling strategy you pursue.
+
+```{r cluod miss by region, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company region
+ggplot(long_data1, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Cloud computing adoption by Sector, Segmented by Size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+ theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+#### 3.3.1. Cloud computing category of benefits to companies, by sector and size
+
+```{r cloud benefits by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Cloud computing adoption by Sector, Segmented by Size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+#### 3.3.2. Cloud computing category of benefits to companies, by sector and region
+
+```{r cloud benefits by region, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company region
+ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing Data Distribution for Cloud computing benefits by Sector, Segmented by Region", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+#### 3.4.1.1. Auto-process invoices issued by companies, by sector and size
+
+```{r auto-process invoices by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Auto-Process Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+#### 3.4.1.2. Auto-process invoices issued by companies, by sector and region
+
+```{r auto-process invoices by region, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Auto-Process Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+
+```
+
+
+
+#### 3.4.2.1. Manual e-invoices issued by companies, by sector and size
+
+```{r Manual e-invoices by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Manual e-Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+#### 3.4.2.2. Manual e-invoices issued by companies, by sector and region
+
+```{r Manual e-invoices by region, echo=FALSE, fig.height=13, fig.width=13}
+
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Manual e-Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+
+#### 3.4.3.1. Paper invoices issued by companies, by sector and size
+
+```{r paper invoices by size, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of paper in oinvoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+#### 3.4.3.2. Paper invoices issued by companies, by sector and region
+
+```{r paper invoices by region, echo=FALSE, fig.height=13, fig.width=13}
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of paper invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
+
