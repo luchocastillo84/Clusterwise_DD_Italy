@@ -1,4 +1,4 @@
-# load the necessary packages
+#### 0. Load the necessary packages ####
 library(readr)
 library(readxl)
 library(dplyr)
@@ -6,21 +6,34 @@ library(tidyr)
 library(here)
 library(git2r)
 library(visdat)
+library(ggplot2)
 library(naniar)
 library(chatgpt)
 library(gptstudio)
 require(devtools)
 library(finalfit)
+library(mice)
+library(gridExtra)
+library(FactoMineR)
+library(factoextra)
+library(ggmice)
+library(ggmcmc)
+library(nnet)
+library(caret)
+library(pROC)
+library(fastDummies)
+
 install_github("MichelNivard/gptstudio", force = TRUE)
 
-# Sys.setenv(OPENAI_API_KEY = "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")
+##### 0.1. Load environment #####
+
+load(here("Scripts", "Environments",  "missing_ict_14.RData"))
 
 
-################################################################################
-################################### Load Data ##################################
-################################################################################
 
-# Loads ATECO classification 
+#### 1. Load Data ####
+
+##### 1.1. Loads ATECO classification ####
 ateco <- read_xlsx(here("Data", "Tags","ateco_survey.xlsx"))
 
 ateco_b17 <- ateco %>% group_by(ateco_B17) %>% 
@@ -29,20 +42,22 @@ ateco_b17 <- ateco %>% group_by(ateco_B17) %>%
 ateco_a17 <- ateco %>% group_by(ateco_A17) %>% 
   summarise(details = paste(unique(details_sec2), collapse = "; "))
 
-# Loads sizes by No. of employees
+##### 1.1. Loads sizes by No. of employees ##### 
 
 size <- read_xlsx(here("Data", "Tags","size.xlsx"))
 
-# Loads regions NUTS 1
+##### 1.2. Loads regions NUTS 1 ##### 
 
 regions <- read_xlsx(here("Data", "Tags","regions_nuts1.xlsx"))
 
-
+##### 1.3. Load the ICT usage survey ##### 
 # This line reads an Excel file "ICT_Microdati_2014.xlsx", located in the "Data" folder, inside the project directory. 
 # The "here" function is used to specify the relative path to the file. 
 # The data from the Excel file is stored in a new R data frame called ICT_2014.
 ICT_2014 <- read_xlsx(here("Data", "Raw", "ICT_Microdati_2014.xlsx"))
 ict_14 <- read_xlsx(here("Data", "Raw", "ICT_Microdati_2014.xlsx"))
+
+###### 1.3.1 Visualize data,  uncover NAs and add ateco17  ######
 
 vis_miss(ict_14, warn_large_data = FALSE)
 
@@ -52,6 +67,7 @@ ict_14 <- ict_14 %>% replace_with_na_all(condition = ~. == "NA") # converting ""
 
 
 # creating a copy of ict_14c c meaning cleaned
+
 ict_14c <- ict_14
 
 
@@ -80,16 +96,21 @@ ict_14c <- ict_14c %>%
   ))
 
 
+options(scipen=999)
+ict_14c$Revenue_K <- ict_14c$Ricavi/1000
+
+###### 1.3.2. Remove variables with high missingness #####
+
 # Convert variables in the ict_14c dataframe
 ict_14c <- ict_14c %>%
   # Convert variable 1 to character
   mutate_at(vars(1), as.character) %>%
   
   # Convert variables 2 to 78 and 84 to 85 to numeric
-  mutate_at(vars(2:78, 84:85), as.numeric) %>%
+  mutate_at(vars(4,13,18, 64:68, 71,72, 76,84,85), as.numeric) %>%
   
   # Convert variables 79 to 83 and 86 to 87 to factor
-  mutate_at(vars(79:83, 86:87), as.factor)
+  mutate_at(vars(2,3,5:12,19:63, 69:70, 73:75, 77:83, 86:88), as.factor)
 
 
 # Deleting the rows that has more than 70 obs missing
@@ -151,45 +172,98 @@ vis_miss(ict_14c[, 1:30], warn_large_data = FALSE)
 vis_miss(ict_14c[, 31:58], warn_large_data = FALSE)
 vis_miss(ict_14c[, 59:77], warn_large_data = FALSE)
 
-###############################################################################
-################################## WEBSITE USE ################################
-###############################################################################
+ict_14c0 <- ict_14c
 
-# Subset data for rows where any of the seven variables have missing values
-missing_subset <- ict_14c %>% 
-  filter(is.na(C8a) | is.na(C8b) | is.na(C8c) | is.na(C8d) | is.na(C8e) | is.na(C8f) | is.na(C8g) | is.na(C8h) | is.na(C8i))
 
-# Descriptive statistics for economic sector and region in the subset
-table(missing_subset$dom1)
-table(missing_subset$rip)
+###### 1.3.3. One-hot encoding of variables####
 
-# Visualization for economic sector of missing cases
-ggplot(missing_subset, aes(x = dom1)) + 
-  geom_bar() + 
-  ggtitle("Economic Sectors of Missing Cases") + 
-  xlab("Economic Sector") + 
-  ylab("Count")
+ict_14c <- dummy_cols(ict_14c, select_columns = c("dom1", "clad4", 
+                                                  "rip","Ricavi"), 
+                      remove_selected_columns = F, remove_first_dummy = T)
 
-# Visualization for regions of missing cases
-ggplot(missing_subset, aes(x = rip)) + 
-  geom_bar() + 
-  ggtitle("Regions of Missing Cases") + 
-  xlab("Region") + 
-  ylab("Count")
-# This code will help you identify any patterns or concentrations in the dom1 and rip variables among the observations with missing values in the seven ICT variables. The bar plots will visually present the distribution of missing cases across different sectors and regions.
-# 
-# If there are specific sectors or regions that have a noticeably higher count of missing cases, it could suggest a relationship between those characteristics and the missingness in the ICT variables.
+ict_14c[,c(79:124)] <- lapply(ict_14c[,c(79:124)], as.factor)
 
+
+
+
+#### 2. ONE VAR ANALYSIS #####
+
+#ict_14c_no_missing1
+# ict_14c
 
 # Melt the data
-long_data <- ict_14c %>%
-  select(dom1, clad4, rip, C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i) %>%  # add clad4
-  pivot_longer(cols = -c(dom1, clad4, rip), names_to = "variable", values_to = "value")
+long_var <- ict_14c %>%
+  select(Revenue_K, dom1, clad4, rip, D2a) %>%  # add clad4
+  pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value")
 
+long_var$clad4 <- factor(long_var$clad4, 
+                          levels = c("cl1", "cl2", "cl3", "cl4"),
+                          labels = c("Micro", "Small", "Medium", "Large"))
+
+long_var$rip <- factor(long_var$rip, 
+                        levels = c("ITC", "ITF", "ITG", "ITH", "ITI"),
+                        labels = c("Northwest", "South", "Iisland", "Northeast", "Center"))
+
+
+
+# Categorize the values
+long_var$categorized <- case_when(
+  is.na(long_var$value) ~ "Missing",
+  long_var$value == 1 ~ "1",
+  long_var$value == 0 ~ "0",
+  TRUE ~ as.character(long_var$value)
+)
+
+# Plot with facets by company size
+ggplot(long_var, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Missing", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+
+
+#### 3. WEBSITE USE ####
+
+
+# This code will help you identify any patterns or concentrations in the dom1 
+# and rip variables among the observations with missing values in the seven ICT 
+# variables. The bar plots will visually present the distribution of missing 
+# cases across different sectors and regions.
+# 
+# If there are specific sectors or regions that have a noticeably higher count 
+# of missing cases, it could suggest a relationship between those characteristics 
+# and the missingness in the ICT variables.
+
+# Companies services offered by the website.  
+# Ricavi. Is the revenue by levels. There are 14 levels
+# dom4. Represent the 27 economic sectors Ateco before 2017
+# rip. Represent the 5 regions in Italy NUTS 1
+# C8a. Possibility to place orders or reservations online (e.g. online shopping cart)
+# C8b. Online traceability of the order
+# C8c. Access to product catalogues or price lists
+# C8d. Ability to customize site content for regular visitors
+# C8e. Ability for site visitors to customize or design products
+# C8f. Privacy Policy Notices, Privacy Certification Mark, or Site Security Certification
+# C8g. Announcement of job vacancies or possibility of making job applications online
+# C8h. Links or references to the company's social media profiles
+# C8i. Possibility to submit complaints online (via email, web form, etc.)
+
+##### 3.1.  Melt the data WS #####
+long_data <- ict_14c %>%
+  select(Revenue_K, dom1, clad4, rip, C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i) %>%  # add clad4
+  pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value")
+
+# Changing the name of the size of compnanies 
 long_data$clad4 <- factor(long_data$clad4, 
                           levels = c("cl1", "cl2", "cl3", "cl4"),
                           labels = c("Micro", "Small", "Medium", "Large"))
 
+# Changing the name of the regions in Italy
 long_data$rip <- factor(long_data$rip, 
                           levels = c("ITC", "ITF", "ITG", "ITH", "ITI"),
                           labels = c("Northwest", "South", "Iisland", "Northeast", "Center"))
@@ -204,6 +278,8 @@ long_data$categorized <- case_when(
   TRUE ~ as.character(long_data$value)
 )
 
+###### 3.1.1. Plot by size ###### 
+
 # Plot with facets by company size
 ggplot(long_data, aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -212,6 +288,7 @@ ggplot(long_data, aes(x = dom1, fill = categorized)) +
   facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+###### 3.1.2. Plot by region #####
 
 # Plot with facets by company regions
 ggplot(long_data, aes(x = dom1, fill = categorized)) +
@@ -221,6 +298,14 @@ ggplot(long_data, aes(x = dom1, fill = categorized)) +
   facet_wrap(~ rip, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+###### 3.1.3. Plot by revenue  #####
+
+ggplot(long_data, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_grid(Revenue_K ~ clad4, scales = "free_x") +  # Using facet_grid to facet by both revenue and company size
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
 # Summarize the data
@@ -243,81 +328,26 @@ table_display
 
 
 
-###############################################################################
-################################## CLOUD COMPUTING USE ########################
-###############################################################################
+
+#### 4. CLOUD COMPUTING USE #####
 
 
 
-# Subset data for rows where any of the seven variables have missing values
-missing_subset1 <- ict_14c %>% 
-  filter(is.na(D2a) | is.na(D2b) | is.na(D2c) | is.na(D2d) | is.na(D2e) | is.na(D2f) | is.na(D2g))
-
-# Descriptive statistics for economic sector and region in the subset
-table(missing_subset1$dom1)
-table(missing_subset1$rip)
-
-# Visualization for economic sector of missing cases
-ggplot(missing_subset1, aes(x = dom1)) + 
-  geom_bar() + 
-  ggtitle("Economic Sectors of Missing Cases") + 
-  xlab("Economic Sector") + 
-  ylab("Count")
-
-# Visualization for regions of missing cases
-ggplot(missing_subset1, aes(x = clad4)) + 
-  geom_bar() + 
-  ggtitle("Sizes of Missing Cases") + 
-  xlab("sizes") + 
-  ylab("Count")
-# This code will help you identify any patterns or concentrations in the dom1 and rip variables among the observations with missing values in the seven ICT variables. The bar plots will visually present the distribution of missing cases across different sectors and regions.
+# This code will help you identify any patterns or concentrations in the dom1 
+# and rip variables among the observations with missing values in the seven ICT 
+# variables. The bar plots will visually present the distribution of missing 
+# cases across different sectors and regions.
 # 
-# If there are specific sectors or regions that have a noticeably higher count of missing cases, it could suggest a relationship between those characteristics and the missingness in the ICT variables.
+# If there are specific sectors or regions that have a noticeably higher count 
+# of missing cases, it could suggest a relationship between those characteristics 
+# and the missingness in the ICT variables.
 
 
-# Melt the data
+##### 4.1. Melt the data CC ####
 long_data1 <- ict_14c %>%
-  select(dom1, D2a, D2a, D2b, D2c, D2d, D2e, D2g, clad4) %>%  # select relevant columns
-  pivot_longer(cols = -dom1, names_to = "variable", values_to = "value")
-
-# Categorize the values
-long_data1$categorized <- case_when(
-  is.na(long_data1$value) ~ "Missing",
-  long_data1$value == 1 ~ "1",
-  long_data1$value == 0 ~ "0",
-  TRUE ~ as.character(long_data1$value)
-)
-
-# Plot
-ggplot(long_data1, aes(x = dom1, fill = categorized)) +
-  geom_bar(position = "stack") +
-  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
-       x = "Economic Sector", y = "Count", fill = "Category") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-# Continue from previous transformations
-summary_data1 <- long_data1 %>%
-  group_by(dom1, categorized) %>%
-  tally()
-
-# Spread the data for a wide format suitable for table display
-table_data1 <- summary_data1 %>%
-  pivot_wider(names_from = categorized1, values_from = n, values_fill = 0)
-
-# Display table with gt
-table_data1 %>%
-  gt() %>%
-  tab_header(
-    title = "Count of Missing, 1s, and 0s by Economic Sector"
-  )
-
-
-# Melt the data
-long_data1 <- ict_14c %>%
-  select(dom1, clad4, rip, D2a, D2a, D2b, D2c, D2d, D2e, D2g,
+  select(Revenue_K, dom1, clad4, rip,  D2a, D2b, D2c, D2d, D2e, D2f, D2g,
          D3a, D3b) %>%  # add clad4
-  pivot_longer(cols = -c(dom1, clad4, rip), names_to = "variable", values_to = "value")
+  pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value")
 
 
 long_data1$clad4 <- factor(long_data1$clad4, 
@@ -337,6 +367,8 @@ long_data1$categorized <- case_when(
   TRUE ~ as.character(long_data1$value)
 )
 
+###### 4.1.1. Plot by size  ####
+
 # Plot with facets by company size
 ggplot(long_data1, aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -345,9 +377,76 @@ ggplot(long_data1, aes(x = dom1, fill = categorized)) +
   facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+###### 4.1.2. Plot by region  ####
+
+# Plot with facets by  region
+ggplot(long_data1, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 4.1.3. Plot by revenue  ####
+
+# Plot with facets by  revenue level
+ggplot(long_data1, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_grid(Revenue_K ~ clad4, scales = "free_x") +  # Using facet_grid to facet by both revenue and company size
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##### 4.2. Cloud computing category of benefits to companies ###################
+
+
+# Melt the data
+long_data1a <- ict_14c %>%
+  select(Revenue_K, dom1, clad4, rip, D4a, D4b, D4c) %>%  # add clad4
+  pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value")
+
+
+long_data1a$clad4 <- factor(long_data1a$clad4, 
+                           levels = c("cl1", "cl2", "cl3", "cl4"),
+                           labels = c("Micro", "Small", "Medium", "Large"))
+
+long_data1a$rip <- factor(long_data1a$rip, 
+                         levels = c("ITC", "ITF", "ITG", "ITH", "ITI"),
+                         labels = c("Northwest", "South", "Iisland", "Northeast", "Center"))
+
+
+# Categorize the values
+long_data1a$categorized <- case_when(
+  long_data1a$value == 1 ~ "High benefit",
+  long_data1a$value == 2 ~ "Medium benefit",
+  long_data1a$value == 3 ~ "Low benefit",
+  long_data1a$value == 4 ~ "No benefit",
+  is.na(long_data1a$value) ~ "Missing",
+  TRUE ~ as.character(long_data1a$value)
+)
 
 # Plot with facets by company size
-ggplot(long_data1, aes(x = dom1, fill = categorized)) +
+ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4, ncol = 1, scales = "free_x") +  # adjust ncol based on how many panels you want per row
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_grid(Revenue_K ~ clad4, scales = "free_x") +  # Using facet_grid to facet by both revenue and company size
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+# Plot with facets by company size
+ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
   labs(title = "Distribution of Missing, 1s, and 0s by Sector", 
        x = "Economic Sector", y = "Count", fill = "Category") +
@@ -356,33 +455,986 @@ ggplot(long_data1, aes(x = dom1, fill = categorized)) +
 
 
 
+#### 5.TYPE OF INVOICES  #####
+
+##### 5.1. Melt the data TI ####
+
+# I2a. Percentage of invoices sent to other companies or PAs in standard electronic 
+#     format suitable for automatic data processing (e.g. EDI, UBL, XML)	29.55
+# I2b. Percentage of invoices sent to other businesses or PAs in electronic 
+#     format not suitable for automatic processing (e.g. email, email attachments in PDF format)	29.55
+# I2c	Percentage of invoices sent to other companies or PAs in paper format	29.55
+
+# Melting data for better visualization
+# Categorize the data into "Missing" and "Complete"
+long_data2 <- ict_14c %>%
+  select(Revenue_K, dom1, clad4, rip, I2a, I2b, I2c) %>%
+  pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value") %>%
+  mutate(categorized = ifelse(is.na(value), "Missing", "Complete"))
+
+
+long_data2$clad4 <- factor(long_data2$clad4, 
+                            levels = c("cl1", "cl2", "cl3", "cl4"),
+                            labels = c("Micro", "Small", "Medium", "Large"))
+
+long_data2$rip <- factor(long_data2$rip, 
+                          levels = c("ITC", "ITF", "ITG", "ITH", "ITI"),
+                          labels = c("Northwest", "South", "Iisland", "Northeast", "Center"))
+
+# long_data2$variable <- factor(long_data2$variable, 
+#                          levels = c("I2a", "I2b", "I2c"),
+#                          labels = c("Auto_Process_Invo", "Manual_e_Invo", "Paper_Invo"))
+
+
+###### 5.1.1. Plot by size I2a  ####
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Auto-Process Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 5.1.2. Plot by size I2b  ####
+
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Manual e-Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 5.1.3. Plot by size I2c  ####
+
+# Plot with facets by company size
+long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of paper in oinvoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ clad4 + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 5.1.4. Plot by region I2a  ####
+
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Auto-Process Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 5.1.5. Plot by region I2b  ####
+
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of Manual e-Invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+###### 5.1.6. Plot by region I2c  ####
+
+# Plot with facets by company Region
+long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = categorized)) +
+  geom_bar(position = "stack") +
+  labs(title = "Distribution of paper invoices by Sector and size", 
+       x = "Economic Sector", y = "Count", fill = "Category") +
+  facet_wrap(~ rip + variable, ncol = 1, scales = "free_x") +  # facet by both size and variable
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
 
 
-# Summarize the data
-summary_data <- long_data %>%
-  group_by(dom1, clad4, categorized) %>%
-  tally()
-
-# Spread the data for table display
-table_data <- summary_data %>%
-  pivot_wider(names_from = categorized, values_from = n, values_fill = 0)
-
-# Display the table with gt
-table_display <- table_data %>%
-  gt() %>%
-  tab_header(
-    title = "Count of Missing, 1s, and 0s by Economic Sector and Company Size"
-  )
-
-table_display
+#### 6. IMPUTATON #####
 
 
+##### 6.1 WEBSITE VARIABLES #####
 
-miss_by_sector <- ict_14c %>% group_by(dom1,clad4) %>% miss_var_summary()
+
+# dom1, clad4, rip, C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i
+
+# Companies services offered by the website.                    
+# C8a. Possibility to place orders or reservations online (e.g. online shopping cart)
+# C8b. Online traceability of the order
+# C8c. Access to product catalogues or price lists
+# C8d. Ability to customize site content for regular visitors
+# C8e. Ability for site visitors to customize or design products
+# C8f. Privacy Policy Notices, Privacy Certification Mark, or Site Security Certification
+# C8g. Announcement of job vacancies or possibility of making job applications online
+# C8h. Links or references to the company's social media profiles
+# C8i. Possibility to submit complaints online (via email, web form, etc.)
+
+# B5a Using IT specialists who are part of the business group
+
+###### 6.1.1. Model 1: Imputation with logreg #####
+
+# Converting as factor the variables to impute
+# ict_14c[,c(19:27)] <- lapply(ict_14c[,c(19:27)], as.factor)
+
+# Choosing only the related variables to website use to impute
+imp_model_ws1 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip")], 
+                      method = "logreg", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+imp_model_ws1 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE),
+                                 grep("Ricavi_", names(ict_14c), value = TRUE))],
+                      method = "logreg", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 7 as specified.
 
 
+
+plot_trace(imp_model_ws1)
+
+# You can change action to view other imputed datasets
+completed_data1 <- complete(imp_model_ws1, action = 1) 
+completed_data1$J7 <-  ict_14c$J7
+
+###### 6.1.2. Model 2: Imputation with pmm #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+
+imp_model_ws2 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip")], 
+                      method = "pmm", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+imp_model_ws2 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE),
+                                 grep("Ricavi_", names(ict_14c), value = TRUE))], 
+                      method = "pmm", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+
+
+plot_trace(imp_model_ws2)
+
+# You can change action to view other imputed datasets
+completed_data2 <- complete(imp_model_ws2, action = 1) 
+completed_data2$J7 <-  ict_14c$J7
+
+###### 6.1.3. Model 3: Imputation with cart #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region, access to computer and use of social media
+### Covariates
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+# A2 Percentage of employees use computers
+# B1 Employment of IT specialists
+# C9c SM usage by type: multimedia content sharing websites (e.g. YouTube, Flickr, Picasa, SlideShare)
+
+
+imp_model_ws3 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip")], 
+                      method = "cart",
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+gc()
+imp_model_ws3 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
+                                 "C8e", "C8f", "C8g", "C8h", 
+                                 "C8i", "B1", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE),
+                                 grep("Ricavi_", names(ict_14c), value = TRUE))], 
+                      method = "cart",
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+
+
+
+plot_trace(imp_model_ws3)
+
+# You can change action to view other imputed datasets
+completed_data3 <- complete(imp_model_ws3, action = 1)
+completed_data3$J7 <-  ict_14c$J7
+
+###### 6.1.4. Bar plot panel by variable  #####
+
+# C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i
+var1 <- "C7"
+
+plot_original <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Original Data")
+
+plot_imputed1 <- ggplot(completed_data1, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model1")
+
+plot_imputed2 <- ggplot(completed_data2, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model2")
+
+plot_imputed3 <- ggplot(completed_data3, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model3")
+
+
+
+
+grid.arrange(plot_original, plot_imputed1, plot_imputed2, plot_imputed3, ncol=2)
+
+
+##### 6.1.5. IMPUTATION DIAGNOSTICS WS #####
+
+###### 6.1.6. Model with original data ######
+
+# Running the model with no missing values using data without imputing
+ict_14c_no_missing <- na.omit(ict_14c[, c("J7", "C8a", "C8b", "C8c", 
+                                          "C8d", "C8e", "C8f", "C8g", 
+                                          "C8h", "C8i")])
+
+# Run the logistic regression model on the data without missing values
+ws_org1 <- glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, 
+               data = ict_14c_no_missing, 
+               family = binomial())
+
+# Display the summary of the model
+summary(ws_org1)
+
+# Predict using your models
+predicted_prob_org<- predict(ws_org1, type = "response")
+predicted_class_org <- ifelse(predicted_prob_org > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_org <- sum(predicted_class_org == ict_14c_no_missing$J7) / length(ict_14c_no_missing$J7)
+
+# 2. Confusion Matrix
+conf_matrix_org <- confusionMatrix(as.factor(predicted_class_org), as.factor(ict_14c_no_missing$J7))
+
+# 3. ROC & AUC
+roc_obj_org <- roc(ict_14c_no_missing$J7, predicted_prob_org)
+auc_org <- auc(roc_obj_org)
+
+# Print the results
+print(paste("Accuracy for Model Org:", acc_org))
+print(conf_matrix_org)
+print(paste("AUC for Model Org:", auc_org))
+
+
+###### 6.1.7. Model 1 performance metrics ######
+
+# Using completed_data1 for the regression
+# Fit the model on each imputed dataset for model1
+ws_model1_mice <- with(data = completed_data1, 
+                    expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+
+
+
+summary(ws_model1_mice)
+
+# Predict using your models
+predicted_prob1 <- predict(ws_model1_mice, type = "response")
+predicted_class1 <- ifelse(predicted_prob1 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc1 <- sum(predicted_class1 == completed_data1$J7) / length(completed_data1$J7)
+
+# 2. Confusion Matrix
+conf_matrix1 <- confusionMatrix(as.factor(predicted_class1), as.factor(completed_data1$J7))
+
+# 3. ROC & AUC
+roc_obj1 <- roc(completed_data1$J7, predicted_prob1)
+auc1 <- auc(roc_obj1)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc1))
+print(conf_matrix1)
+print(paste("AUC for Model 1:", auc1))
+
+
+###### 6.1.8. Model 2 performance metrics ######
+
+
+# Fit the model on each imputed dataset for model2
+ws_model2_mice <- with(data = completed_data2, 
+                       expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+
+# Display the pooled results
+
+summary(ws_model2_mice)
+
+
+# Predict using your models
+predicted_prob2 <- predict(ws_model2_mice, type = "response")
+predicted_class2 <- ifelse(predicted_prob2 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc2 <- sum(predicted_class2 == completed_data2$J7) / length(completed_data2$J7)
+
+# 2. Confusion Matrix
+conf_matrix2 <- confusionMatrix(as.factor(predicted_class2), as.factor(completed_data2$J7))
+
+# 3. ROC & AUC
+roc_obj2 <- roc(completed_data2$J7, predicted_prob2)
+auc2 <- auc(roc_obj2)
+
+# Print the results
+print(paste("Accuracy for Model 2:", acc2))
+print(conf_matrix2)
+print(paste("AUC for Model 2:", auc2))
+
+
+###### 6.1.9. Model 3 performance metrics ######
+
+# Fit the model on each imputed dataset for model3
+ws_model3_mice <- with(data = completed_data3, 
+                       expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+
+# Display the pooled results
+
+summary(ws_model3_mice)
+
+
+# Predict using your models
+predicted_prob3 <- predict(ws_model3_mice, type = "response")
+predicted_class3 <- ifelse(predicted_prob3 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc3 <- sum(predicted_class3 == completed_data3$J7) / length(completed_data3$J7)
+
+# 2. Confusion Matrix
+conf_matrix3 <- confusionMatrix(as.factor(predicted_class3), as.factor(completed_data3$J7))
+
+# 3. ROC & AUC
+roc_obj3 <- roc(completed_data3$J7, predicted_prob3)
+auc3 <- auc(roc_obj3)
+
+# Print the results
+print(paste("Accuracy for Model 3:", acc3))
+print(conf_matrix3)
+print(paste("AUC for Model 3:", auc3))
+
+###### 6.1.10. Summaries ######
+
+# Store results in a list of lists
+results <- list(
+  list(conf_matrix = conf_matrix_org, AUC = paste("AUC for Model Org:", auc_org)),
+  list(conf_matrix = conf_matrix1, AUC = paste("AUC for Model 1:", auc1)),
+  list(conf_matrix = conf_matrix2, AUC = paste("AUC for Model 2:", auc2)),
+  list(conf_matrix = conf_matrix3, AUC = paste("AUC for Model 3:", auc3))
+)
+
+# Print results
+for (res in results) {
+  print(res$conf_matrix)
+  cat(res$AUC, "\n\n")
+}
+
+
+
+##### 6.2. CLOUD COMPUTING VARIABLES ######
+
+# dom1, clad4, rip, D2a, D2a, D2b, D2c, D2d, D2e, D2g, D3a, D3b
+# Which cloud computing services used on the Internet are purchased by the company:
+# D2a. Email services
+# D2b. Office software (e.g., word processors, spreadsheets)
+# D2c. Enterprise database hosting
+# D2d. File storage
+# D2e. Finance and accounting software applications
+# D2f. CRM (Customer Relationship Management) software applications to manage information relating to your customers
+# D2g. Computing power to run the company's software
+
+# How the cloud computing services used on the Internet purchased by the company are provided.
+# D3a. Through cloud service provider servers that are not reserved exclusively for the company
+# D3b. Through servers of the cloud service provider which are reserved exclusively for the company
+
+
+## Converting these variables as factor 
+ict_14c[,c(33:41)] <- lapply(ict_14c[,c(33:41)], as.factor)
+
+###### 6.2.1. Model 1: Imputation with logreg #####
+
+# Choosing only the related variables to website use to impute
+imp_model_cc1 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
+                                 "D2e", "D2f", "D2g", "D3a", 
+                                 "D3b", "C7", "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip" )], 
+                      method = "logreg", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+
+imp_model_cc1 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
+                                 "D2e", "D2f", "D2g", "D3a", 
+                                 "D3b", "C7", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                grep("rip_", names(ict_14c), value = TRUE))],
+                      method = "logreg", 
+                      m = 7, maxit = 10 ) # Number of imputed datasets. 5 is a common choice.
+
+# , 
+# grep("dom1_", names(ict_14c), value = TRUE),
+# grep("clad4_", names(ict_14c), value = TRUE),
+# grep("rip_", names(ict_14c), value = TRUE),
+# grep("Ricavi_", names(ict_14c), value = TRUE))],
+
+
+plot_trace(imp_model_cc1)
+
+# You can change action to view other imputed datasets
+completed_data_cc1 <- complete(imp_model_cc1, action = 1) 
+completed_data_cc1$J7 <-  ict_14c$J7
+
+###### 6.2.2. Model 2: Imputation with pmm #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region
+### Covariates
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+imp_model_cc2 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
+                                 "D2e", "D2f", "D2g", "D3a", 
+                                 "D3b", "C7", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "rf", 
+                      m = 7, maxit = 10) # Number of imputed datasets. 5 is a common choice.
+
+plot_trace(imp_model_cc2)
+
+# You can change action to view other imputed datasets
+completed_data_cc2 <- complete(imp_model_cc2, action = 1) 
+completed_data_cc2$J7 <-  ict_14c$J7
+
+###### 6.2.3. Model 3: Imputation with cart #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region, access to computer and use of social media
+### Covariates
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+# A2 Percentage of employees use computers
+# B1 Employment of IT specialists
+# C9c SM usage by type: multimedia content sharing websites (e.g. YouTube, Flickr, Picasa, SlideShare)
+
+
+imp_model_cc3 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
+                                 "D2e", "D2f", "D2g", "D3a", 
+                                 "D3b", "C7", "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "cart", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+
+plot_trace(imp_model_cc3)
+
+# You can change action to view other imputed datasets
+completed_data_cc3 <- complete(imp_model_cc3, action = 1) 
+completed_data_cc3$J7 <-  ict_14c$J7
+
+
+###### 6.2.4. Bar plot panel by variable  #####
+
+
+# "D2a", "D2b", "D2c", "D2d", "D2e", "D2f", "D2g", "D3a", "D3b"
+var1 <- "D2a"
+
+plot_original_cc <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Original Data")
+
+plot_imputed_cc1 <- ggplot(completed_data_cc1, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model1")
+
+plot_imputed_cc2 <- ggplot(completed_data_cc2, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model2")
+
+plot_imputed_cc3 <- ggplot(completed_data_cc3, aes(x = !!sym(var1))) + geom_bar() + 
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
+  ggtitle("Imputed Data model3")
+
+
+
+
+grid.arrange(plot_original_cc, plot_imputed_cc1, 
+             plot_imputed_cc2, plot_imputed_cc3, ncol=2)
+
+
+##### 6.2.5. IMPUTATION DIAGNOSTICS CC #####
+
+###### 6.2.6. Model with original data ######
+
+# Running the model with no missing values using data without imputing
+ict_14c_no_missing1 <- na.omit(ict_14c[, c("J7", "D2a", "D2b", "D2c", "D2d", 
+                                           "D2e", "D2f", "D2g", "D3a", "D3b")])
+
+# Run the logistic regression model on the data without missing values
+ws_org1 <- glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+               data = ict_14c_no_missing1, 
+               family = binomial())
+
+# Display the summary of the model
+summary(ws_org1)
+
+# Predict using your models
+predicted_prob_org1<- predict(ws_org1, type = "response")
+predicted_class_org1 <- ifelse(predicted_prob_org1 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_org1 <- sum(predicted_class_org1 == ict_14c_no_missing1$J7) / length(ict_14c_no_missing1$J7)
+
+# 2. Confusion Matrix
+conf_matrix_org1 <- confusionMatrix(as.factor(predicted_class_org1), as.factor(ict_14c_no_missing1$J7))
+
+# 3. ROC & AUC
+roc_obj_org1 <- roc(ict_14c_no_missing1$J7, predicted_prob_org1)
+auc_org1 <- auc(roc_obj_org1)
+
+# Print the results
+print(paste("Accuracy for Model Org:", acc_org1))
+print(conf_matrix_org1)
+print(paste("AUC for Model Org:", auc_org1))
+
+
+###### 6.2.7. Model 1 performance metrics ######
+
+# Using completed_data1 for the regression
+# Fit the model on each imputed dataset for model1
+cc_model1_mice <- with(data = completed_data_cc1, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model1_mice)
+
+# Predict using your models
+predicted_prob_cc1 <- predict(cc_model1_mice, type = "response")
+predicted_class_cc1 <- ifelse(predicted_prob_cc1 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc1 <- sum(predicted_class_cc1 == completed_data_cc1$J7) / length(completed_data_cc1$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc1 <- confusionMatrix(as.factor(predicted_class_cc1), as.factor(completed_data_cc1$J7))
+
+# 3. ROC & AUC
+roc_obj_cc1 <- roc(completed_data_cc1$J7, predicted_prob_cc1)
+auc_cc1 <- auc(roc_obj_cc1)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc1))
+print(conf_matrix_cc1)
+print(paste("AUC for Model 1:", auc_cc1))
+
+
+###### 6.2.8. Model 2 performance metrics ######
+
+
+# Fit the model on each imputed dataset for model2
+cc_model2_mice <- with(data = completed_data_cc2, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model2_mice)
+
+# Initialize lists/variables to store results
+acc_list <- list()
+conf_matrix_list <- list()
+auc_list <- list()
+
+# Loop through each model and dataset
+for (i in 1:length(cc_model2_mice)) {
+  model <- cc_model2_mice[[i]]
+  data <- completed_data_cc2[[i]]
+  
+  # Predictions
+  predicted_prob <- predict(model, newdata = data, type = "response")
+  predicted_class <- ifelse(predicted_prob > 0.5, 1, 0)
+  
+  # Accuracy
+  acc <- sum(predicted_class == data$J7) / length(data$J7)
+  acc_list[[i]] <- acc
+  
+  # Confusion Matrix
+  conf_matrix <- confusionMatrix(as.factor(predicted_class), as.factor(data$J7))
+  conf_matrix_list[[i]] <- conf_matrix
+  
+  # ROC & AUC
+  roc_obj <- roc(data$J7, predicted_prob)
+  auc <- auc(roc_obj)
+  auc_list[[i]] <- auc
+}
+
+# Average or sum results as needed
+mean_acc <- mean(unlist(acc_list))
+sum_conf_matrix <- Reduce("+", conf_matrix_list) # Assuming you can sum confusion matrices
+mean_auc <- mean(unlist(auc_list))
+
+print(paste("Average Accuracy:", mean_acc))
+print(sum_conf_matrix)
+print(paste("Average AUC:", mean_auc))
+
+
+
+
+
+
+
+
+
+# Predict using your models
+predicted_prob_cc2 <- predict(cc_model2_mice, type = "response")
+predicted_class_cc2 <- ifelse(predicted_prob_cc2 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc2 <- sum(predicted_class_cc2 == completed_data_cc2$J7) / length(completed_data_cc2$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc2 <- confusionMatrix(as.factor(predicted_class_cc2), as.factor(completed_data_cc2$J7))
+
+# 3. ROC & AUC
+roc_obj_cc2 <- roc(completed_data_cc2$J7, predicted_prob_cc2)
+auc_cc2 <- auc(roc_obj2)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc2))
+print(conf_matrix_cc2)
+print(paste("AUC for Model 1:", auc_cc2))
+
+
+###### 6.2.9. Model 3 performance metrics ######
+
+# Fit the model on each imputed dataset for model3
+cc_model3_mice <- with(data = completed_data_cc3, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model3_mice)
+
+# Predict using your models
+predicted_prob_cc3 <- predict(cc_model3_mice, type = "response")
+predicted_class_cc3 <- ifelse(predicted_prob_cc3 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc3 <- sum(predicted_class_cc3 == completed_data_cc3$J7) / length(completed_data_cc3$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc3 <- confusionMatrix(as.factor(predicted_class_cc3), as.factor(completed_data_cc3$J7))
+
+# 3. ROC & AUC
+roc_obj_cc3 <- roc(completed_data_cc3$J7, predicted_prob_cc3)
+auc_cc3 <- auc(roc_obj3)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc3))
+print(conf_matrix_cc3)
+print(paste("AUC for Model 1:", auc_cc3))
+
+###### 6.2.10. Summaries ######
+
+# Store results in a list of lists
+results <- list(
+  list(conf_matrix = conf_matrix_org1, AUC = paste("AUC for Model Org:", auc_org1)),
+  list(conf_matrix = conf_matrix_cc1, AUC = paste("AUC for Model 1:", auc_cc1)),
+  list(conf_matrix = conf_matrix_cc2, AUC = paste("AUC for Model 2:", auc_cc2)),
+  list(conf_matrix = conf_matrix_cc3, AUC = paste("AUC for Model 3:", auc_cc3))
+)
+
+# Print results
+for (res in results) {
+  print(res$conf_matrix)
+  cat(res$AUC, "\n\n")
+}
+
+##### 6.3. TYPE OF INVIOCES VARIABLES ######
+
+# dom1, clad4, rip, I2a, I2b, I2c
+# Of all the invoices sent by the company during the year 2013 to other 
+# companies or public administrations, indicate the percentage of the following types:
+# I2a. electronic invoices sent in standard format or suitable for automatic processing (for example in EDI, UBL, XML format)
+# I2b. invoices sent in an electronic format not suitable for automatic processing (for example emails or email attachments in PDF, TIF, JPEG or other format)
+# I2c. paper invoices
+
+###### 6.3.1. Model 1: Imputation with sample #####
+
+# Choosing only the related variables to website use to impute
+imp_model_ti1 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
+                                 "E2a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip" )], 
+                      method = "mean", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+plot_trace(imp_model_ti1)
+
+# You can change action to view other imputed datasets
+completed_data_ti1 <- complete(imp_model_ti1, action = 1) 
+completed_data_ti1$J7 <-  ict_14c$J7
+
+###### 6.3.2. Model 2: Imputation with pmm #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region
+### Covariates
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+imp_model_ti2 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
+                                 "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip" )], 
+                      method = "rf", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+plot_trace(imp_model_ti2)
+
+# You can change action to view other imputed datasets
+completed_data_ti2 <- complete(imp_model_ti2, action = 1) 
+completed_data_ti2$J7 <-  ict_14c$J7
+
+###### 6.3.3. Model 3: Imputation with cart #####
+
+# # Choosing only the related variables to website use to impute with other covarietes
+# such size, sector, and region, access to computer and use of social media
+### Covariates
+# dom1 economic sectors
+# clad4 size by No. of employees
+# rip regions NUTS 1 for Italy
+
+imp_model_ti3 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
+                                 "B5a", "Ricavi", "C9c", 
+                                 "dom1","clad4", "rip" )], 
+                      method = "cart", 
+                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+
+plot_trace(imp_model_ti3)
+
+# You can change action to view other imputed datasets
+completed_data_ti3 <- complete(imp_model_ti3, action = 1) 
+completed_data_ti3$J7 <-  ict_14c$J7
+
+
+###### 6.3.4. Bar plot panel by variable  #####
+
+
+# "I2a", "I2b", "I2c"
+var1 <- "I2a"
+
+plot_original_ti <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_histogram() + 
+    ggtitle("Original Data")
+
+plot_imputed_ti1 <- ggplot(completed_data_ti1, aes(x = !!sym(var1))) + geom_histogram() + 
+    ggtitle("Imputed Data model1")
+
+plot_imputed_ti2 <- ggplot(completed_data_ti2, aes(x = !!sym(var1))) + geom_histogram() + 
+    ggtitle("Imputed Data model2")
+
+plot_imputed_ti3 <- ggplot(completed_data_ti3, aes(x = !!sym(var1))) + geom_histogram() + 
+   ggtitle("Imputed Data model3")
+
+
+
+
+grid.arrange(plot_original_ti, plot_imputed_ti1, 
+             plot_imputed_ti2, plot_imputed_ti3, ncol=2)
+
+
+##### 6.3.5. IMPUTATION DIAGNOSTICS TI #####
+
+###### 6.3.6. Model with original data ######
+
+# Running the model with no missing values using data without imputing
+ict_14c_no_missing1 <- na.omit(ict_14c[, c("J7", "D2a", "D2b", "D2c", "D2d", 
+                                           "D2e", "D2f", "D2g", "D3a", "D3b")])
+
+# Run the logistic regression model on the data without missing values
+ws_org1 <- glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+               data = ict_14c_no_missing1, 
+               family = binomial())
+
+# Display the summary of the model
+summary(ws_org1)
+
+# Predict using your models
+predicted_prob_org1<- predict(ws_org1, type = "response")
+predicted_class_org1 <- ifelse(predicted_prob_org1 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_org1 <- sum(predicted_class_org1 == ict_14c_no_missing1$J7) / length(ict_14c_no_missing1$J7)
+
+# 2. Confusion Matrix
+conf_matrix_org1 <- confusionMatrix(as.factor(predicted_class_org1), as.factor(ict_14c_no_missing1$J7))
+
+# 3. ROC & AUC
+roc_obj_org1 <- roc(ict_14c_no_missing1$J7, predicted_prob_org1)
+auc_org1 <- auc(roc_obj_org1)
+
+# Print the results
+print(paste("Accuracy for Model Org:", acc_org1))
+print(conf_matrix_org1)
+print(paste("AUC for Model Org:", auc_org1))
+
+
+###### 6.3.7. Model 1 performance metrics ######
+
+# Using completed_data1 for the regression
+# Fit the model on each imputed dataset for model1
+cc_model1_mice <- with(data = completed_data_cc1, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model1_mice)
+
+# Predict using your models
+predicted_prob_cc1 <- predict(cc_model1_mice, type = "response")
+predicted_class_cc1 <- ifelse(predicted_prob_cc1 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc1 <- sum(predicted_class_cc1 == completed_data_cc1$J7) / length(completed_data_cc1$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc1 <- confusionMatrix(as.factor(predicted_class_cc1), as.factor(completed_data_cc1$J7))
+
+# 3. ROC & AUC
+roc_obj_cc1 <- roc(completed_data_cc1$J7, predicted_prob_cc1)
+auc_cc1 <- auc(roc_obj_cc1)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc1))
+print(conf_matrix_cc1)
+print(paste("AUC for Model 1:", auc_cc1))
+
+
+###### 6.3.8. Model 2 performance metrics ######
+
+
+# Fit the model on each imputed dataset for model2
+cc_model2_mice <- with(data = completed_data_cc2, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model2_mice)
+
+# Predict using your models
+predicted_prob_cc2 <- predict(cc_model2_mice, type = "response")
+predicted_class_cc2 <- ifelse(predicted_prob_cc2 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc2 <- sum(predicted_class_cc2 == completed_data_cc2$J7) / length(completed_data_cc2$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc2 <- confusionMatrix(as.factor(predicted_class_cc2), as.factor(completed_data_cc2$J7))
+
+# 3. ROC & AUC
+roc_obj_cc2 <- roc(completed_data_cc2$J7, predicted_prob_cc2)
+auc_cc2 <- auc(roc_obj2)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc2))
+print(conf_matrix_cc2)
+print(paste("AUC for Model 1:", auc_cc2))
+
+
+###### 6.3.9. Model 3 performance metrics ######
+
+# Fit the model on each imputed dataset for model3
+cc_model3_mice <- with(data = completed_data_cc3, 
+                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                                  family = binomial()))
+
+
+
+summary(cc_model3_mice)
+
+# Predict using your models
+predicted_prob_cc3 <- predict(cc_model3_mice, type = "response")
+predicted_class_cc3 <- ifelse(predicted_prob_cc3 > 0.5, 1, 0)  # Using 0.5 as threshold
+
+# 1. Accuracy
+acc_cc3 <- sum(predicted_class_cc3 == completed_data_cc3$J7) / length(completed_data_cc3$J7)
+
+# 2. Confusion Matrix
+conf_matrix_cc3 <- confusionMatrix(as.factor(predicted_class_cc3), as.factor(completed_data_cc3$J7))
+
+# 3. ROC & AUC
+roc_obj_cc3 <- roc(completed_data_cc3$J7, predicted_prob_cc3)
+auc_cc3 <- auc(roc_obj3)
+
+# Print the results
+print(paste("Accuracy for Model 1:", acc_cc3))
+print(conf_matrix_cc3)
+print(paste("AUC for Model 1:", auc_cc3))
+
+###### 6.3.10. Summaries ######
+
+# Store results in a list of lists
+results <- list(
+  list(conf_matrix = conf_matrix_org1, AUC = paste("AUC for Model Org:", auc_org1)),
+  list(conf_matrix = conf_matrix_cc1, AUC = paste("AUC for Model 1:", auc_cc1)),
+  list(conf_matrix = conf_matrix_cc2, AUC = paste("AUC for Model 2:", auc_cc2)),
+  list(conf_matrix = conf_matrix_cc3, AUC = paste("AUC for Model 3:", auc_cc3))
+)
+
+# Print results
+for (res in results) {
+  print(res$conf_matrix)
+  cat(res$AUC, "\n\n")
+}
+
+
+
+
+
+
+
+
+
+
+mca_result <- MCA(completed_data3[,c("C8a", "C8b", "C8c", "C8d", 
+                                  "C8e", "C8f", "C8g", "C8h", "C8i")], graph=FALSE)
+
+
+# Eigenvalues/variances
+eig.val <- get_eigenvalue(mca_result)
+barplot(eig.val[, 2], names.arg=1:nrow(eig.val), main="Eigenvalues", 
+        col="steelblue", cex.names=0.7)
+
+
+# Plotting the variables on dimensions 1 and 2
+fviz_mca_var(mca_result, choice = "var.cat", axes = 1:2)
+
+fviz_mca_var(mca_result, choice = "var", axes = 1:2)
 
 
 

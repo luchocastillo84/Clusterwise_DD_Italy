@@ -34,6 +34,7 @@ require(devtools)
 library(finalfit)
 library(tidyverse)
 library(kableExtra)
+library(mice)
 ```
 
 ```{r Loading Data, echo=FALSE}
@@ -47,7 +48,7 @@ raw <- get(params$raw_data)
 
 ## 1. Introduction
 
-This document outlines the treatment of missing data before applying dimensionality reduction using Principal Component Analysis PCA  for the `params$data_year` data frame, which represents the ICT usage in Italian enterprises survey for the year 2014.
+This document outlines the treatment of missing data before applying dimensionality reduction using Principal Component Analysis PCA  for the `r params$data_year` data frame, which represents the ICT usage in Italian enterprises survey for the year 2014.
 
 ### 1.1. Data structure
 
@@ -307,6 +308,8 @@ ggplot(long_data1, aes(x = dom1, fill = categorized)) +
 #### 3.3.1. Cloud computing category of benefits to companies, by sector and size
 
 ```{r cloud benefits by size, echo=FALSE, fig.height=13, fig.width=13}
+
+
 # Plot with facets by company size
 ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -324,9 +327,11 @@ ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
 ```
 
 
+
+
+```{r cloud benefits by region, eval=FALSE, fig.height=13, fig.width=13, include=FALSE}
 #### 3.3.2. Cloud computing category of benefits to companies, by sector and region
 
-```{r cloud benefits by region, echo=FALSE, fig.height=13, fig.width=13}
 # Plot with facets by company region
 ggplot(long_data1a, aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -363,9 +368,11 @@ long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = catego
         strip.text = element_text(size = 14))
 ```
 
-#### 3.4.1.2. Auto-process invoices issued by companies, by sector and region
 
-```{r auto-process invoices by region, echo=FALSE, fig.height=13, fig.width=13}
+
+```{r auto-process invoices by region, eval=FALSE, fig.height=13, fig.width=13, include=FALSE}
+
+#### 3.4.1.2. Auto-process invoices issued by companies, by sector and region
 # Plot with facets by company Region
 long_data2 %>% filter(variable == "I2a") %>%  ggplot(aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -404,10 +411,10 @@ long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = catego
         strip.text = element_text(size = 14))
 ```
 
+
+
+```{r Manual e-invoices by region, eval=FALSE, fig.height=13, fig.width=13, include=FALSE}
 #### 3.4.2.2. Manual e-invoices issued by companies, by sector and region
-
-```{r Manual e-invoices by region, echo=FALSE, fig.height=13, fig.width=13}
-
 # Plot with facets by company Region
 long_data2 %>% filter(variable == "I2b") %>%  ggplot(aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -445,9 +452,10 @@ long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = catego
         strip.text = element_text(size = 14))
 ```
 
-#### 3.4.3.2. Paper invoices issued by companies, by sector and region
 
-```{r paper invoices by region, echo=FALSE, fig.height=13, fig.width=13}
+
+```{r paper invoices by region, eval=FALSE, fig.height=13, fig.width=13, include=FALSE}
+#### 3.4.3.2. Paper invoices issued by companies, by sector and region
 # Plot with facets by company Region
 long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = categorized)) +
   geom_bar(position = "stack") +
@@ -465,4 +473,4 @@ long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = catego
 ```
 
 
-
+## Imputation process 
