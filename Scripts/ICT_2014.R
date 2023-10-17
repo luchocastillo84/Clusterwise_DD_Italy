@@ -70,6 +70,43 @@ ict_14 <- ict_14 %>% replace_with_na_all(condition = ~. == "NA") # converting ""
 
 ict_14c <- ict_14
 
+# Grouping by 'clad4', 'dom1', and 'region'
+levels_clad4 = c("cl1", "cl2", "cl3", "cl4")
+labels_clad4 = c("Micro", "Small", "Medium", "Large")
+
+ict_14c %>%
+  group_by(clad4) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = factor(clad4, levels = levels_clad4, labels = labels_clad4), y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Company Size", x = "Company Size", y = "Count") +
+  theme_minimal()
+
+
+
+ict_14c %>%
+  group_by(ateco_1) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = ateco_1, y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Secors", x = "Sectors", y = "Count") +
+  theme_minimal()
+
+
+levels_rip4 = c("ITC", "ITF", "ITG", "ITH", "ITI")
+labels_rip4 = c("Northwest", "South", "Iisland", "Northeast", "Center")
+
+ict_14c %>%
+  group_by(rip) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = factor(rip, levels = levels_rip4, labels = labels_rip4), y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Region", x = "Region", y = "Count") +
+  theme_minimal()
+
 
 # delete N from the column dom1 which contains the ateco codes
 # ict_14c$dom1 <- gsub("N", "", ict_14c$dom1)
@@ -193,7 +230,7 @@ ict_14c[,c(79:124)] <- lapply(ict_14c[,c(79:124)], as.factor)
 
 # Melt the data
 long_var <- ict_14c %>%
-  select(Revenue_K, dom1, clad4, rip, D2a) %>%  # add clad4
+  select(Revenue_K, dom1, clad4, rip, C4) %>%  # add clad4
   pivot_longer(cols = -c(Revenue_K, dom1, clad4, rip), names_to = "variable", values_to = "value")
 
 long_var$clad4 <- factor(long_var$clad4, 
@@ -556,7 +593,7 @@ long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = catego
 
 # dom1, clad4, rip, C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i
 
-# Companies services offered by the website.                    
+# Companies services offered by the website.
 # C8a. Possibility to place orders or reservations online (e.g. online shopping cart)
 # C8b. Online traceability of the order
 # C8c. Access to product catalogues or price lists
@@ -568,37 +605,75 @@ long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = catego
 # C8i. Possibility to submit complaints online (via email, web form, etc.)
 
 # B5a Using IT specialists who are part of the business group
+# B1 	Employment of IT specialists
+# C9c SM usage by type: multimedia content sharing websites
 
 ###### 6.1.1. Model 1: Imputation with logreg #####
 
 # Converting as factor the variables to impute
 # ict_14c[,c(19:27)] <- lapply(ict_14c[,c(19:27)], as.factor)
 
+var1 <- "J1"
+
 # Choosing only the related variables to website use to impute
-imp_model_ws1 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
-                                 "C8e", "C8f", "C8g", "C8h", 
-                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip")], 
-                      method = "logreg", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
 imp_model_ws1 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
                                  "C8e", "C8f", "C8g", "C8h", 
                                  "C8i", "B1", "B5a", "C9c", 
                                  grep("dom1_", names(ict_14c), value = TRUE),
                                  grep("clad4_", names(ict_14c), value = TRUE),
-                                 grep("rip_", names(ict_14c), value = TRUE),
-                                 grep("Ricavi_", names(ict_14c), value = TRUE))],
+                                 grep("rip_", names(ict_14c), value = TRUE))],
                       method = "logreg", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 7 as specified.
+                      m = 5, # Number of imputed datasets. 5 is a common choice.
+                      maxit = 15) # Number of iterations
+
+plot_trace(imp_model_ws1)
+
+# Load the necessary library
+library(mice)
+
+# Specify the imputation method for each variable. 
+# If 'C4' is the only variable with missing values, we specify its method. 
+# Variables not named in the method list will not be imputed.
+method_list <- make.method(ict_14c[, c("C8a", "C8b", "C8c", "C8d", 
+                                       "C8e", "C8f", "C8g", "C8h", 
+                                       "C8i", "B1", "B5a", "C9c", 
+                                       grep("dom1_", names(ict_14c), value = TRUE),
+                                       grep("clad4_", names(ict_14c), value = TRUE),
+                                       grep("rip_", names(ict_14c), value = TRUE))])
+variables <- c("C8a", "C8b", "C8c", "C8d", 
+               "C8e", "C8f", "C8g", "C8h", 
+               "C8i")
+
+for (var in variables) {
+  method_list[[var]] <- "logreg"
+}
+
+# Set predictorMatrix to default to start, can refine predictors later
+predictorMatrix <- make.predictorMatrix(ict_14c[, c("C8a", "C8b", "C8c", "C8d", 
+                                                    "C8e", "C8f", "C8g", "C8h", 
+                                                    "C8i", "B1", "B5a", "C9c", 
+                                                grep("dom1_", names(ict_14c), value = TRUE),
+                                                grep("clad4_", names(ict_14c), value = TRUE),
+                                                grep("rip_", names(ict_14c), value = TRUE))])
+
+
+# Perform the imputation
+imputed_data <- mice(ict_14c, method=method_list, predictorMatrix=predictorMatrix, m=5)
+
+# Check the imputed data
+summary(imputed_data)
+
+# You can also complete the data and use it for analysis
+completed_data <- complete(imputed_data, 1) #using the first imputed dataset as an example
 
 
 
 plot_trace(imp_model_ws1)
 
 # You can change action to view other imputed datasets
-completed_data1 <- complete(imp_model_ws1, action = 1) 
-completed_data1$J7 <-  ict_14c$J7
+completed_data_ws1 <- complete(imp_model_ws1, action = 1) 
+
 
 ###### 6.1.2. Model 2: Imputation with pmm #####
 
@@ -608,30 +683,24 @@ completed_data1$J7 <-  ict_14c$J7
 # clad4 size by No. of employees
 # rip regions NUTS 1 for Italy
 
-imp_model_ws2 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
-                                 "C8e", "C8f", "C8g", "C8h", 
-                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip")], 
-                      method = "pmm", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
 imp_model_ws2 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
                                  "C8e", "C8f", "C8g", "C8h", 
                                  "C8i", "B1", "B5a", "C9c", 
                                  grep("dom1_", names(ict_14c), value = TRUE),
                                  grep("clad4_", names(ict_14c), value = TRUE),
-                                 grep("rip_", names(ict_14c), value = TRUE),
-                                 grep("Ricavi_", names(ict_14c), value = TRUE))], 
+                                 grep("rip_", names(ict_14c), value = TRUE))],
                       method = "pmm", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+                      m = 5, # Number of imputed datasets. 5 is a common choice.
+                      maxit = 15) # Number of iterations
 
 
 
 plot_trace(imp_model_ws2)
 
 # You can change action to view other imputed datasets
-completed_data2 <- complete(imp_model_ws2, action = 1) 
-completed_data2$J7 <-  ict_14c$J7
+completed_data_ws2 <- complete(imp_model_ws2, action = 1) 
+
 
 ###### 6.1.3. Model 3: Imputation with cart #####
 
@@ -645,52 +714,40 @@ completed_data2$J7 <-  ict_14c$J7
 # B1 Employment of IT specialists
 # C9c SM usage by type: multimedia content sharing websites (e.g. YouTube, Flickr, Picasa, SlideShare)
 
-
-imp_model_ws3 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
-                                 "C8e", "C8f", "C8g", "C8h", 
-                                 "C8i", "B1", "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip")], 
-                      method = "cart",
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
-
-gc()
 imp_model_ws3 <- mice(ict_14c[,c("C8a", "C8b", "C8c", "C8d", 
                                  "C8e", "C8f", "C8g", "C8h", 
                                  "C8i", "B1", "B5a", "C9c", 
                                  grep("dom1_", names(ict_14c), value = TRUE),
                                  grep("clad4_", names(ict_14c), value = TRUE),
-                                 grep("rip_", names(ict_14c), value = TRUE),
-                                 grep("Ricavi_", names(ict_14c), value = TRUE))], 
+                                 grep("rip_", names(ict_14c), value = TRUE))],
                       method = "cart",
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
-
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
 
 
 plot_trace(imp_model_ws3)
 
-# You can change action to view other imputed datasets
-completed_data3 <- complete(imp_model_ws3, action = 1)
-completed_data3$J7 <-  ict_14c$J7
+
+
 
 ###### 6.1.4. Bar plot panel by variable  #####
 
 # C8a, C8b, C8c, C8d, C8e, C8f, C8g, C8h, C8i
-var1 <- "C7"
+var0 <- "C7"
 
-plot_original <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_bar() + 
+plot_original <- ggplot(ict_14c, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Original Data")
 
-plot_imputed1 <- ggplot(completed_data1, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed1 <- ggplot(completed_data1, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model1")
 
-plot_imputed2 <- ggplot(completed_data2, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed2 <- ggplot(completed_data2, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model2")
 
-plot_imputed3 <- ggplot(completed_data3, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed3 <- ggplot(completed_data3, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model3")
 
@@ -703,14 +760,14 @@ grid.arrange(plot_original, plot_imputed1, plot_imputed2, plot_imputed3, ncol=2)
 ##### 6.1.5. IMPUTATION DIAGNOSTICS WS #####
 
 ###### 6.1.6. Model with original data ######
-
+var1 <- "J1"
 # Running the model with no missing values using data without imputing
-ict_14c_no_missing <- na.omit(ict_14c[, c("J7", "C8a", "C8b", "C8c", 
+ict_14c_no_missing <- na.omit(ict_14c[, c(var1, "C8a", "C8b", "C8c", 
                                           "C8d", "C8e", "C8f", "C8g", 
                                           "C8h", "C8i")])
 
 # Run the logistic regression model on the data without missing values
-ws_org1 <- glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, 
+ws_org1 <- glm(ict_14c_no_missing[[var1]] ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, 
                data = ict_14c_no_missing, 
                family = binomial())
 
@@ -718,62 +775,71 @@ ws_org1 <- glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i,
 summary(ws_org1)
 
 # Predict using your models
-predicted_prob_org<- predict(ws_org1, type = "response")
-predicted_class_org <- ifelse(predicted_prob_org > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_org_ws<- predict(ws_org1, type = "response")
+predicted_class_org_ws <- ifelse(predicted_prob_org_ws > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_org <- sum(predicted_class_org == ict_14c_no_missing$J7) / length(ict_14c_no_missing$J7)
+acc_org_ws <- sum(predicted_class_org_ws == ict_14c_no_missing[[var1]]) / length(ict_14c_no_missing[[var1]])
 
 # 2. Confusion Matrix
-conf_matrix_org <- confusionMatrix(as.factor(predicted_class_org), as.factor(ict_14c_no_missing$J7))
+conf_matrix_org_ws <- confusionMatrix(as.factor(predicted_class_org_ws), as.factor(ict_14c_no_missing[[var1]]))
 
 # 3. ROC & AUC
-roc_obj_org <- roc(ict_14c_no_missing$J7, predicted_prob_org)
-auc_org <- auc(roc_obj_org)
+roc_obj_org_ws <- roc(ict_14c_no_missing[[var1]], predicted_prob_org_ws)
+auc_org_ws <- auc(roc_obj_org_ws)
 
 # Print the results
-print(paste("Accuracy for Model Org:", acc_org))
-print(conf_matrix_org)
-print(paste("AUC for Model Org:", auc_org))
+print(paste("Accuracy for Model Org:", acc_org_ws))
+print(conf_matrix_org_ws)
+print(paste("AUC for Model Org:", auc_org_ws))
 
 
 ###### 6.1.7. Model 1 performance metrics ######
 
+
+# You can change action to view other imputed datasets
+completed_data_ws1 <- complete(imp_model_ws1, action = 1)
+# Add the dependent variable the the complete data
+completed_data_ws1[[var1]] <-  ict_14c[[var1]]
 # Using completed_data1 for the regression
 # Fit the model on each imputed dataset for model1
-ws_model1_mice <- with(data = completed_data1, 
-                    expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+
+ws_model1_mice <- with(data = completed_data_ws1, 
+                       expr = glm(completed_data_ws1[[var1]] ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
 
 
 
 summary(ws_model1_mice)
 
 # Predict using your models
-predicted_prob1 <- predict(ws_model1_mice, type = "response")
-predicted_class1 <- ifelse(predicted_prob1 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ws1 <- predict(ws_model1_mice, type = "response")
+predicted_class_ws1 <- ifelse(predicted_prob_ws1 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc1 <- sum(predicted_class1 == completed_data1$J7) / length(completed_data1$J7)
+acc_ws1 <- sum(predicted_class_ws1 == completed_data_ws1[[var1]]) / length(completed_data_ws1[[var1]])
 
 # 2. Confusion Matrix
-conf_matrix1 <- confusionMatrix(as.factor(predicted_class1), as.factor(completed_data1$J7))
+conf_matrix_ws1 <- confusionMatrix(as.factor(predicted_class_ws1), as.factor(completed_data_ws1[[var1]]))
 
 # 3. ROC & AUC
-roc_obj1 <- roc(completed_data1$J7, predicted_prob1)
-auc1 <- auc(roc_obj1)
+roc_obj_ws1 <- roc(completed_data_ws1[[var1]], predicted_prob_ws1)
+auc_ws1 <- auc(roc_obj_ws1)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc1))
-print(conf_matrix1)
-print(paste("AUC for Model 1:", auc1))
+print(paste("Accuracy for Model 1:", acc_ws1))
+print(conf_matrix_ws1)
+print(paste("AUC for Model 1:", auc_ws1))
 
 
 ###### 6.1.8. Model 2 performance metrics ######
 
-
+# You can change action to view other imputed datasets
+completed_data_ws2 <- complete(imp_model_ws2, action = 4)
+# Add the dependent variable the the complete data
+completed_data_ws2[[var1]] <-  ict_14c[[var1]]
 # Fit the model on each imputed dataset for model2
-ws_model2_mice <- with(data = completed_data2, 
-                       expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+ws_model2_mice <- with(data = completed_data_ws2, 
+                       expr = glm(completed_data_ws2[[var1]] ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
 
 # Display the pooled results
 
@@ -781,30 +847,35 @@ summary(ws_model2_mice)
 
 
 # Predict using your models
-predicted_prob2 <- predict(ws_model2_mice, type = "response")
-predicted_class2 <- ifelse(predicted_prob2 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ws2 <- predict(ws_model2_mice, type = "response")
+predicted_class_ws2 <- ifelse(predicted_prob_ws2 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc2 <- sum(predicted_class2 == completed_data2$J7) / length(completed_data2$J7)
+acc_ws2 <- sum(predicted_class_ws2 == completed_data_ws2[[var1]]) / length(completed_data_ws2[[var1]])
 
 # 2. Confusion Matrix
-conf_matrix2 <- confusionMatrix(as.factor(predicted_class2), as.factor(completed_data2$J7))
+conf_matrix_ws2 <- confusionMatrix(as.factor(predicted_class_ws2), as.factor(completed_data_ws2[[var1]]))
 
 # 3. ROC & AUC
-roc_obj2 <- roc(completed_data2$J7, predicted_prob2)
-auc2 <- auc(roc_obj2)
+roc_obj_ws2 <- roc(completed_data_ws2[[var1]], predicted_prob_ws2)
+auc_ws2 <- auc(roc_obj_ws2)
 
 # Print the results
-print(paste("Accuracy for Model 2:", acc2))
-print(conf_matrix2)
-print(paste("AUC for Model 2:", auc2))
+print(paste("Accuracy for Model 2:", acc_ws2))
+print(conf_matrix_ws2)
+print(paste("AUC for Model 2:", auc_ws2))
 
 
 ###### 6.1.9. Model 3 performance metrics ######
 
+# You can change action to view other imputed datasets
+completed_data_ws3 <- complete(imp_model_ws3, action = 1)
+# Add the dependent variable the the complete data
+completed_data_ws3[[var1]] <-  ict_14c[[var1]]
+
 # Fit the model on each imputed dataset for model3
-ws_model3_mice <- with(data = completed_data3, 
-                       expr = glm(J7 ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
+ws_model3_mice <- with(data = completed_data_ws3, 
+                       expr = glm(completed_data_ws3[[var1]] ~ C8a + C8b + C8c + C8d + C8e + C8f + C8g + C8h + C8i, family = binomial()))
 
 # Display the pooled results
 
@@ -812,32 +883,33 @@ summary(ws_model3_mice)
 
 
 # Predict using your models
-predicted_prob3 <- predict(ws_model3_mice, type = "response")
-predicted_class3 <- ifelse(predicted_prob3 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ws3 <- predict(ws_model3_mice, type = "response")
+predicted_class_ws3 <- ifelse(predicted_prob_ws3 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc3 <- sum(predicted_class3 == completed_data3$J7) / length(completed_data3$J7)
+acc_ws3 <- sum(predicted_class_ws3 == completed_data_ws3[[var1]]) / length(completed_data_ws3[[var1]])
 
 # 2. Confusion Matrix
-conf_matrix3 <- confusionMatrix(as.factor(predicted_class3), as.factor(completed_data3$J7))
+conf_matrix_ws3 <- confusionMatrix(as.factor(predicted_class_ws3), as.factor(completed_data_ws3[[var1]]))
 
 # 3. ROC & AUC
-roc_obj3 <- roc(completed_data3$J7, predicted_prob3)
-auc3 <- auc(roc_obj3)
+roc_obj_ws3 <- roc(completed_data_ws3[[var1]], predicted_prob_ws3)
+auc_ws3 <- auc(roc_obj_ws3)
 
 # Print the results
-print(paste("Accuracy for Model 3:", acc3))
-print(conf_matrix3)
-print(paste("AUC for Model 3:", auc3))
+print(paste("Accuracy for Model 3:", acc_ws3))
+print(conf_matrix_ws3)
+print(paste("AUC for Model 3:", auc_ws3))
+
 
 ###### 6.1.10. Summaries ######
 
 # Store results in a list of lists
 results <- list(
-  list(conf_matrix = conf_matrix_org, AUC = paste("AUC for Model Org:", auc_org)),
-  list(conf_matrix = conf_matrix1, AUC = paste("AUC for Model 1:", auc1)),
-  list(conf_matrix = conf_matrix2, AUC = paste("AUC for Model 2:", auc2)),
-  list(conf_matrix = conf_matrix3, AUC = paste("AUC for Model 3:", auc3))
+  list(conf_matrix = conf_matrix_org_ws, AUC = paste("AUC for Model Org:", auc_org_ws)),
+  list(conf_matrix = conf_matrix_ws1, AUC = paste("AUC for Model 1:", auc_ws1)),
+  list(conf_matrix = conf_matrix_ws2, AUC = paste("AUC for Model 2:", auc_ws2)),
+  list(conf_matrix = conf_matrix_ws3, AUC = paste("AUC for Model 3:", auc_ws3))
 )
 
 # Print results
@@ -864,19 +936,17 @@ for (res in results) {
 # D3a. Through cloud service provider servers that are not reserved exclusively for the company
 # D3b. Through servers of the cloud service provider which are reserved exclusively for the company
 
+# C7. Website
+# B5a Using IT specialists who are part of the business group
+# C9c SM usage by type: multimedia content sharing websites
+
 
 ## Converting these variables as factor 
-ict_14c[,c(33:41)] <- lapply(ict_14c[,c(33:41)], as.factor)
+# ict_14c[,c(33:41)] <- lapply(ict_14c[,c(33:41)], as.factor)
 
 ###### 6.2.1. Model 1: Imputation with logreg #####
 
 # Choosing only the related variables to website use to impute
-imp_model_cc1 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
-                                 "D2e", "D2f", "D2g", "D3a", 
-                                 "D3b", "C7", "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip" )], 
-                      method = "logreg", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
 
 imp_model_cc1 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d", 
@@ -897,9 +967,7 @@ imp_model_cc1 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d",
 
 plot_trace(imp_model_cc1)
 
-# You can change action to view other imputed datasets
-completed_data_cc1 <- complete(imp_model_cc1, action = 1) 
-completed_data_cc1$J7 <-  ict_14c$J7
+
 
 ###### 6.2.2. Model 2: Imputation with pmm #####
 
@@ -920,9 +988,7 @@ imp_model_cc2 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d",
 
 plot_trace(imp_model_cc2)
 
-# You can change action to view other imputed datasets
-completed_data_cc2 <- complete(imp_model_cc2, action = 1) 
-completed_data_cc2$J7 <-  ict_14c$J7
+
 
 ###### 6.2.3. Model 3: Imputation with cart #####
 
@@ -949,30 +1015,27 @@ imp_model_cc3 <- mice(ict_14c[,c("D2a", "D2b", "D2c", "D2d",
 
 plot_trace(imp_model_cc3)
 
-# You can change action to view other imputed datasets
-completed_data_cc3 <- complete(imp_model_cc3, action = 1) 
-completed_data_cc3$J7 <-  ict_14c$J7
 
 
 ###### 6.2.4. Bar plot panel by variable  #####
 
 
 # "D2a", "D2b", "D2c", "D2d", "D2e", "D2f", "D2g", "D3a", "D3b"
-var1 <- "D2a"
+var0 <- "D2a"
 
-plot_original_cc <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_bar() + 
+plot_original_cc <- ggplot(ict_14c, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Original Data")
 
-plot_imputed_cc1 <- ggplot(completed_data_cc1, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed_cc1 <- ggplot(completed_data_cc1, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model1")
 
-plot_imputed_cc2 <- ggplot(completed_data_cc2, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed_cc2 <- ggplot(completed_data_cc2, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model2")
 
-plot_imputed_cc3 <- ggplot(completed_data_cc3, aes(x = !!sym(var1))) + geom_bar() + 
+plot_imputed_cc3 <- ggplot(completed_data_cc3, aes(x = !!sym(var0))) + geom_bar() + 
   geom_text(stat='count', aes(label=..count..), vjust=-0.5) + 
   ggtitle("Imputed Data model3")
 
@@ -987,44 +1050,51 @@ grid.arrange(plot_original_cc, plot_imputed_cc1,
 
 ###### 6.2.6. Model with original data ######
 
+var2 <- "B1"
 # Running the model with no missing values using data without imputing
-ict_14c_no_missing1 <- na.omit(ict_14c[, c("J7", "D2a", "D2b", "D2c", "D2d", 
+ict_14c_no_missing1 <- na.omit(ict_14c[, c(var2, "D2a", "D2b", "D2c", "D2d", 
                                            "D2e", "D2f", "D2g", "D3a", "D3b")])
 
 # Run the logistic regression model on the data without missing values
-ws_org1 <- glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+cc_org1 <- glm(ict_14c_no_missing1[[var2]] ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
                data = ict_14c_no_missing1, 
                family = binomial())
 
 # Display the summary of the model
-summary(ws_org1)
+summary(cc_org1)
 
 # Predict using your models
-predicted_prob_org1<- predict(ws_org1, type = "response")
-predicted_class_org1 <- ifelse(predicted_prob_org1 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_org_cc1<- predict(cc_org1, type = "response")
+predicted_class_org_cc1 <- ifelse(predicted_prob_org_cc1 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_org1 <- sum(predicted_class_org1 == ict_14c_no_missing1$J7) / length(ict_14c_no_missing1$J7)
+acc_org_cc1 <- sum(predicted_class_org_cc1 == ict_14c_no_missing1[[var2]]) / length(ict_14c_no_missing1[[var2]])
 
 # 2. Confusion Matrix
-conf_matrix_org1 <- confusionMatrix(as.factor(predicted_class_org1), as.factor(ict_14c_no_missing1$J7))
+conf_matrix_org_cc1 <- confusionMatrix(as.factor(predicted_class_org_cc1), as.factor(ict_14c_no_missing1[[var2]]))
 
 # 3. ROC & AUC
-roc_obj_org1 <- roc(ict_14c_no_missing1$J7, predicted_prob_org1)
-auc_org1 <- auc(roc_obj_org1)
+roc_obj_org_cc1 <- roc(ict_14c_no_missing1[[var2]], predicted_prob_org_cc1)
+auc_org_cc1 <- auc(roc_obj_org_cc1)
 
 # Print the results
-print(paste("Accuracy for Model Org:", acc_org1))
-print(conf_matrix_org1)
-print(paste("AUC for Model Org:", auc_org1))
+print(paste("Accuracy for Model Org:", acc_org_cc1))
+print(conf_matrix_org_cc1)
+print(paste("AUC for Model Org:", auc_org_cc1))
 
 
 ###### 6.2.7. Model 1 performance metrics ######
 
+
+# You can change action to view other imputed datasets
+completed_data_cc1 <- complete(imp_model_cc1, action = 4) 
+completed_data_cc1[[var2]] <-  ict_14c[[var2]]
+
 # Using completed_data1 for the regression
 # Fit the model on each imputed dataset for model1
+
 cc_model1_mice <- with(data = completed_data_cc1, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                       expr = glm(completed_data_cc1[[var2]] ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
                                   family = binomial()))
 
 
@@ -1036,13 +1106,13 @@ predicted_prob_cc1 <- predict(cc_model1_mice, type = "response")
 predicted_class_cc1 <- ifelse(predicted_prob_cc1 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc1 <- sum(predicted_class_cc1 == completed_data_cc1$J7) / length(completed_data_cc1$J7)
+acc_cc1 <- sum(predicted_class_cc1 == completed_data_cc1[[var2]]) / length(completed_data_cc1[[var2]])
 
 # 2. Confusion Matrix
-conf_matrix_cc1 <- confusionMatrix(as.factor(predicted_class_cc1), as.factor(completed_data_cc1$J7))
+conf_matrix_cc1 <- confusionMatrix(as.factor(predicted_class_cc1), as.factor(completed_data_cc1[[var2]]))
 
 # 3. ROC & AUC
-roc_obj_cc1 <- roc(completed_data_cc1$J7, predicted_prob_cc1)
+roc_obj_cc1 <- roc(completed_data_cc1[[var2]], predicted_prob_cc1)
 auc_cc1 <- auc(roc_obj_cc1)
 
 # Print the results
@@ -1053,86 +1123,51 @@ print(paste("AUC for Model 1:", auc_cc1))
 
 ###### 6.2.8. Model 2 performance metrics ######
 
+# You can change action to view other imputed datasets
+var2 <- "B1"
+completed_data_cc2 <- complete(imp_model_cc2, action = 1) 
+completed_data_cc2[[var2]] <-  ict_14c[[var2]]
 
 # Fit the model on each imputed dataset for model2
 cc_model2_mice <- with(data = completed_data_cc2, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                       expr = glm(completed_data_cc2[[var2]] ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
                                   family = binomial()))
 
 
 
 summary(cc_model2_mice)
 
-# Initialize lists/variables to store results
-acc_list <- list()
-conf_matrix_list <- list()
-auc_list <- list()
 
-# Loop through each model and dataset
-for (i in 1:length(cc_model2_mice)) {
-  model <- cc_model2_mice[[i]]
-  data <- completed_data_cc2[[i]]
-  
-  # Predictions
-  predicted_prob <- predict(model, newdata = data, type = "response")
-  predicted_class <- ifelse(predicted_prob > 0.5, 1, 0)
-  
-  # Accuracy
-  acc <- sum(predicted_class == data$J7) / length(data$J7)
-  acc_list[[i]] <- acc
-  
-  # Confusion Matrix
-  conf_matrix <- confusionMatrix(as.factor(predicted_class), as.factor(data$J7))
-  conf_matrix_list[[i]] <- conf_matrix
-  
-  # ROC & AUC
-  roc_obj <- roc(data$J7, predicted_prob)
-  auc <- auc(roc_obj)
-  auc_list[[i]] <- auc
-}
-
-# Average or sum results as needed
-mean_acc <- mean(unlist(acc_list))
-sum_conf_matrix <- Reduce("+", conf_matrix_list) # Assuming you can sum confusion matrices
-mean_auc <- mean(unlist(auc_list))
-
-print(paste("Average Accuracy:", mean_acc))
-print(sum_conf_matrix)
-print(paste("Average AUC:", mean_auc))
-
-
-
-
-
-
-
-
-
+var2 <- "B1"
 # Predict using your models
 predicted_prob_cc2 <- predict(cc_model2_mice, type = "response")
 predicted_class_cc2 <- ifelse(predicted_prob_cc2 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc2 <- sum(predicted_class_cc2 == completed_data_cc2$J7) / length(completed_data_cc2$J7)
+acc_cc2 <- sum(predicted_class_cc2 == completed_data_cc2[[var2]]) / length(completed_data_cc2[[var2]])
 
 # 2. Confusion Matrix
-conf_matrix_cc2 <- confusionMatrix(as.factor(predicted_class_cc2), as.factor(completed_data_cc2$J7))
+conf_matrix_cc2 <- confusionMatrix(as.factor(predicted_class_cc2), as.factor(completed_data_cc2[[var2]]))
 
 # 3. ROC & AUC
-roc_obj_cc2 <- roc(completed_data_cc2$J7, predicted_prob_cc2)
+roc_obj_cc2 <- roc(completed_data_cc2[[var2]], predicted_prob_cc2)
 auc_cc2 <- auc(roc_obj2)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc_cc2))
+print(paste("Accuracy for Model 2:", acc_cc2))
 print(conf_matrix_cc2)
-print(paste("AUC for Model 1:", auc_cc2))
+print(paste("AUC for Model 2:", auc_cc2))
 
 
 ###### 6.2.9. Model 3 performance metrics ######
 
+# You can change action to view other imputed datasets
+completed_data_cc3 <- complete(imp_model_cc3, action = 1) 
+completed_data_cc3[[var2]] <-  ict_14c[[var2]]
+
 # Fit the model on each imputed dataset for model3
 cc_model3_mice <- with(data = completed_data_cc3, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+                       expr = glm(completed_data_cc3[[var2]] ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
                                   family = binomial()))
 
 
@@ -1144,25 +1179,25 @@ predicted_prob_cc3 <- predict(cc_model3_mice, type = "response")
 predicted_class_cc3 <- ifelse(predicted_prob_cc3 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc3 <- sum(predicted_class_cc3 == completed_data_cc3$J7) / length(completed_data_cc3$J7)
+acc_cc3 <- sum(predicted_class_cc3 == completed_data_cc3[[var2]]) / length(completed_data_cc3[[var2]])
 
 # 2. Confusion Matrix
-conf_matrix_cc3 <- confusionMatrix(as.factor(predicted_class_cc3), as.factor(completed_data_cc3$J7))
+conf_matrix_cc3 <- confusionMatrix(as.factor(predicted_class_cc3), as.factor(completed_data_cc3[[var2]]))
 
 # 3. ROC & AUC
-roc_obj_cc3 <- roc(completed_data_cc3$J7, predicted_prob_cc3)
+roc_obj_cc3 <- roc(completed_data_cc3[[var2]], predicted_prob_cc3)
 auc_cc3 <- auc(roc_obj3)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc_cc3))
+print(paste("Accuracy for Model 3:", acc_cc3))
 print(conf_matrix_cc3)
-print(paste("AUC for Model 1:", auc_cc3))
+print(paste("AUC for Model 3:", auc_cc3))
 
 ###### 6.2.10. Summaries ######
 
 # Store results in a list of lists
 results <- list(
-  list(conf_matrix = conf_matrix_org1, AUC = paste("AUC for Model Org:", auc_org1)),
+  list(conf_matrix = conf_matrix_org_cc1, AUC = paste("AUC for Model Org:", auc_org_cc1)),
   list(conf_matrix = conf_matrix_cc1, AUC = paste("AUC for Model 1:", auc_cc1)),
   list(conf_matrix = conf_matrix_cc2, AUC = paste("AUC for Model 2:", auc_cc2)),
   list(conf_matrix = conf_matrix_cc3, AUC = paste("AUC for Model 3:", auc_cc3))
@@ -1185,18 +1220,50 @@ for (res in results) {
 
 ###### 6.3.1. Model 1: Imputation with sample #####
 
+corPlot(ict_14c[, c("I2a", "I2b", "I2c")])
+var3 <- "J1"
 # Choosing only the related variables to website use to impute
-imp_model_ti1 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
-                                 "E2a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip" )], 
-                      method = "mean", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+imp_model_ti1 <- mice(ict_14c[,c("I2a", "I2b", "C7", 
+                                 "E2a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "sample", 
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
+# Normalize using z-score normalization
+normalize <- function(x) {
+  return((x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE))
+}
+
+
+ict_14c <- ict_14c[, -c(125:127)]
+ict_14c$I2b_z <- normalize(ict_14c$I2b)
+ict_14c$I2c_z <- normalize(ict_14c$I2c)
+
+# Now, proceed with your imputation using the newly created normalized variables
+imp_model_ti1 <- mice(ict_14c[,c("I2a_z", "I2b_z","I2c_z", "C7", 
+                                 "E2a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "sample", 
+                      m = 5, maxit = 20)
+
+# Now, proceed with your imputation using the newly created normalized variables
+imp_model_ti1a <- mice(ict_14c[,c( "I2c", "C7", 
+                                 "E2a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "ri", 
+                      m = 5, maxit = 15)
+
+
+completed_data_ti1a <- complete(imp_model_ti1a, action = 3) 
 plot_trace(imp_model_ti1)
+plot_trace(imp_model_ti1a)
 
-# You can change action to view other imputed datasets
-completed_data_ti1 <- complete(imp_model_ti1, action = 1) 
-completed_data_ti1$J7 <-  ict_14c$J7
 
 ###### 6.3.2. Model 2: Imputation with pmm #####
 
@@ -1206,17 +1273,27 @@ completed_data_ti1$J7 <-  ict_14c$J7
 # dom1 economic sectors
 # clad4 size by No. of employees
 # rip regions NUTS 1 for Italy
-imp_model_ti2 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
-                                 "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip" )], 
+imp_model_ti2 <- mice(ict_14c[,c("I2a", "I2b", "C7", 
+                                 "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
                       method = "rf", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
+imp_model_ti2a <- mice(ict_14c[,c("I2b_z","I2c_z", "C7", 
+                                 "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "rf", 
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+
 
 plot_trace(imp_model_ti2)
+plot_trace(imp_model_ti2a)
 
-# You can change action to view other imputed datasets
-completed_data_ti2 <- complete(imp_model_ti2, action = 1) 
-completed_data_ti2$J7 <-  ict_14c$J7
+
 
 ###### 6.3.3. Model 3: Imputation with cart #####
 
@@ -1227,36 +1304,44 @@ completed_data_ti2$J7 <-  ict_14c$J7
 # clad4 size by No. of employees
 # rip regions NUTS 1 for Italy
 
-imp_model_ti3 <- mice(ict_14c[,c("I2a", "I2b", "I2c", "C7", 
-                                 "B5a", "Ricavi", "C9c", 
-                                 "dom1","clad4", "rip" )], 
+imp_model_ti3 <- mice(ict_14c[,c("I2a", "I2b", "C7", 
+                                 "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
                       method = "cart", 
-                      m = 7, maxit = 15) # Number of imputed datasets. 5 is a common choice.
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
+imp_model_ti3a <- mice(ict_14c[,c("I2b_z","I2c_z", "C7", 
+                                 "B5a", "C9c", 
+                                 grep("dom1_", names(ict_14c), value = TRUE),
+                                 grep("clad4_", names(ict_14c), value = TRUE),
+                                 grep("rip_", names(ict_14c), value = TRUE))], 
+                      method = "cart", 
+                      m = 5, maxit = 15) # Number of imputed datasets. 5 is a common choice.
 
 plot_trace(imp_model_ti3)
+plot_trace(imp_model_ti3a)
 
-# You can change action to view other imputed datasets
-completed_data_ti3 <- complete(imp_model_ti3, action = 1) 
-completed_data_ti3$J7 <-  ict_14c$J7
+
 
 
 ###### 6.3.4. Bar plot panel by variable  #####
 
 
 # "I2a", "I2b", "I2c"
-var1 <- "I2a"
+var0 <- "I2a"
 
-plot_original_ti <- ggplot(ict_14c, aes(x = !!sym(var1))) + geom_histogram() + 
+plot_original_ti <- ggplot(ict_14c, aes(x = !!sym(var0))) + geom_histogram() + 
     ggtitle("Original Data")
 
-plot_imputed_ti1 <- ggplot(completed_data_ti1, aes(x = !!sym(var1))) + geom_histogram() + 
+plot_imputed_ti1 <- ggplot(completed_data_ti1, aes(x = !!sym(var0))) + geom_histogram() + 
     ggtitle("Imputed Data model1")
 
-plot_imputed_ti2 <- ggplot(completed_data_ti2, aes(x = !!sym(var1))) + geom_histogram() + 
+plot_imputed_ti2 <- ggplot(completed_data_ti2, aes(x = !!sym(var0))) + geom_histogram() + 
     ggtitle("Imputed Data model2")
 
-plot_imputed_ti3 <- ggplot(completed_data_ti3, aes(x = !!sym(var1))) + geom_histogram() + 
+plot_imputed_ti3 <- ggplot(completed_data_ti3, aes(x = !!sym(var0))) + geom_histogram() + 
    ggtitle("Imputed Data model3")
 
 
@@ -1270,140 +1355,155 @@ grid.arrange(plot_original_ti, plot_imputed_ti1,
 
 ###### 6.3.6. Model with original data ######
 
+var3 <- "J7"
 # Running the model with no missing values using data without imputing
-ict_14c_no_missing1 <- na.omit(ict_14c[, c("J7", "D2a", "D2b", "D2c", "D2d", 
-                                           "D2e", "D2f", "D2g", "D3a", "D3b")])
+ict_14c_no_missing2 <- na.omit(ict_14c[, c(var3, "I2a_z", "I2b_z", "I2c_z")])
 
 # Run the logistic regression model on the data without missing values
-ws_org1 <- glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
-               data = ict_14c_no_missing1, 
+ti_org1 <- glm(ict_14c_no_missing2[[var3]] ~ I2a_z + I2b_z + I2c_z , 
+               data = ict_14c_no_missing2, 
                family = binomial())
 
 # Display the summary of the model
-summary(ws_org1)
+summary(ti_org1)
 
 # Predict using your models
-predicted_prob_org1<- predict(ws_org1, type = "response")
-predicted_class_org1 <- ifelse(predicted_prob_org1 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_org_ti<- predict(ti_org1, type = "response")
+predicted_class_org_ti <- ifelse(predicted_prob_org_ti > 0.5, 1, 0)  # Using 0.5 as threshold
+
 
 # 1. Accuracy
-acc_org1 <- sum(predicted_class_org1 == ict_14c_no_missing1$J7) / length(ict_14c_no_missing1$J7)
+acc_org_ti <- sum(predicted_class_org_ti == ict_14c_no_missing2[[var3]]) / length(ict_14c_no_missing2[[var3]])
 
 # 2. Confusion Matrix
-conf_matrix_org1 <- confusionMatrix(as.factor(predicted_class_org1), as.factor(ict_14c_no_missing1$J7))
+conf_matrix_org_ti <- confusionMatrix(factor(predicted_class_org_ti, levels = c(0,1)),
+                                      factor(ict_14c_no_missing2[[var3]], levels = c(0,1)))
 
 # 3. ROC & AUC
-roc_obj_org1 <- roc(ict_14c_no_missing1$J7, predicted_prob_org1)
-auc_org1 <- auc(roc_obj_org1)
+roc_obj_org_ti <- roc(ict_14c_no_missing2[[var3]], predicted_prob_org_ti)
+auc_org_ti <- auc(roc_obj_org_ti)
 
 # Print the results
-print(paste("Accuracy for Model Org:", acc_org1))
-print(conf_matrix_org1)
-print(paste("AUC for Model Org:", auc_org1))
+print(paste("Accuracy for Model Org:", acc_org_ti))
+print(conf_matrix_org_ti)
+print(paste("AUC for Model Org:", auc_org_ti))
 
 
 ###### 6.3.7. Model 1 performance metrics ######
 
+
+# You can change action to view other imputed datasets
+completed_data_ti1 <- complete(imp_model_ti1, action = 1) 
+completed_data_ti1[[var3]] <-  ict_14c[[var3]]
+
 # Using completed_data1 for the regression
 # Fit the model on each imputed dataset for model1
-cc_model1_mice <- with(data = completed_data_cc1, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+ti_model1_mice <- with(data = completed_data_ti1, 
+                       expr = glm(completed_data_ti1[[var3]] ~ I2a + I2b, 
                                   family = binomial()))
 
 
 
-summary(cc_model1_mice)
+summary(ti_model1_mice)
 
 # Predict using your models
-predicted_prob_cc1 <- predict(cc_model1_mice, type = "response")
-predicted_class_cc1 <- ifelse(predicted_prob_cc1 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ti1 <- predict(ti_model1_mice, type = "response")
+predicted_class_ti1 <- ifelse(predicted_prob_ti1 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc1 <- sum(predicted_class_cc1 == completed_data_cc1$J7) / length(completed_data_cc1$J7)
+acc_ti1 <- sum(predicted_class_cc1 == completed_data_ti1[[var3]]) / length(completed_data_ti1[[var3]])
 
 # 2. Confusion Matrix
-conf_matrix_cc1 <- confusionMatrix(as.factor(predicted_class_cc1), as.factor(completed_data_cc1$J7))
+conf_matrix_ti1 <- confusionMatrix(factor(predicted_class_ti1, levels = c(0,1)), 
+                                   factor(completed_data_ti1[[var3]], levels = c(0,1)))
 
 # 3. ROC & AUC
-roc_obj_cc1 <- roc(completed_data_cc1$J7, predicted_prob_cc1)
-auc_cc1 <- auc(roc_obj_cc1)
+roc_obj_ti1 <- roc(completed_data_ti1[[var3]], predicted_prob_ti1)
+auc_ti1 <- auc(roc_obj_cc1)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc_cc1))
-print(conf_matrix_cc1)
-print(paste("AUC for Model 1:", auc_cc1))
+print(paste("Accuracy for Model 1:", acc_ti1))
+print(conf_matrix_ti1)
+print(paste("AUC for Model 1:", auc_ti1))
 
 
 ###### 6.3.8. Model 2 performance metrics ######
 
-
+# You can change action to view other imputed datasets
+completed_data_ti2 <- complete(imp_model_ti2, action = 1) 
+completed_data_ti2[[var3]] <-  ict_14c[[var3]]
 # Fit the model on each imputed dataset for model2
-cc_model2_mice <- with(data = completed_data_cc2, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+ti_model2_mice <- with(data = completed_data_ti2, 
+                       expr = glm(completed_data_ti2[[var3]] ~ I2a + I2b , 
                                   family = binomial()))
 
 
 
-summary(cc_model2_mice)
+summary(ti_model2_mice)
 
 # Predict using your models
-predicted_prob_cc2 <- predict(cc_model2_mice, type = "response")
-predicted_class_cc2 <- ifelse(predicted_prob_cc2 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ti2 <- predict(ti_model2_mice, type = "response")
+predicted_class_ti2 <- ifelse(predicted_prob_ti2 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc2 <- sum(predicted_class_cc2 == completed_data_cc2$J7) / length(completed_data_cc2$J7)
+ati_ti2 <- sum(predicted_class_ti2 == completed_data_ti2[[var3]]) / length(completed_data_ti2[[var3]])
 
 # 2. Confusion Matrix
-conf_matrix_cc2 <- confusionMatrix(as.factor(predicted_class_cc2), as.factor(completed_data_cc2$J7))
+conf_matrix_ti2 <- confusionMatrix(factor(predicted_class_ti2, levels = c(0,1)), 
+                                   factor(completed_data_ti2[[var3]], levels = c(0,1)))
 
 # 3. ROC & AUC
-roc_obj_cc2 <- roc(completed_data_cc2$J7, predicted_prob_cc2)
-auc_cc2 <- auc(roc_obj2)
+roc_obj_ti2 <- roc(completed_data_ti2[[var3]], predicted_prob_ti2)
+auc_ti2 <- auc(roc_obj2)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc_cc2))
-print(conf_matrix_cc2)
-print(paste("AUC for Model 1:", auc_cc2))
+print(paste("Accuracy for Model 1:", ati_ti2))
+print(conf_matrix_ti2)
+print(paste("AUC for Model 1:", auc_ti2))
 
 
 ###### 6.3.9. Model 3 performance metrics ######
 
+# You can change action to view other imputed datasets
+completed_data_ti3 <- complete(imp_model_ti3, action = 3) 
+completed_data_ti3[[var3]] <-  ict_14c[[var3]]
 # Fit the model on each imputed dataset for model3
-cc_model3_mice <- with(data = completed_data_cc3, 
-                       expr = glm(J7 ~ D2a + D2b + D2c + D2d + D2e + D2f + D2g + D3a + D3b, 
+ti_model3_mice <- with(data = completed_data_ti3, 
+                       expr = glm(completed_data_ti3[[var3]] ~ I2a  + I2b, 
                                   family = binomial()))
 
 
 
-summary(cc_model3_mice)
+summary(ti_model3_mice)
 
 # Predict using your models
-predicted_prob_cc3 <- predict(cc_model3_mice, type = "response")
-predicted_class_cc3 <- ifelse(predicted_prob_cc3 > 0.5, 1, 0)  # Using 0.5 as threshold
+predicted_prob_ti3 <- predict(ti_model3_mice, type = "response")
+predicted_class_ti3 <- ifelse(predicted_prob_ti3 > 0.5, 1, 0)  # Using 0.5 as threshold
 
 # 1. Accuracy
-acc_cc3 <- sum(predicted_class_cc3 == completed_data_cc3$J7) / length(completed_data_cc3$J7)
+ati_ti3 <- sum(predicted_class_ti3 == completed_data_ti3[[var3]]) / length(completed_data_ti3[[var3]])
 
 # 2. Confusion Matrix
-conf_matrix_cc3 <- confusionMatrix(as.factor(predicted_class_cc3), as.factor(completed_data_cc3$J7))
+conf_matrix_ti3 <- confusionMatrix(factor(predicted_class_ti3, levels = c(0,1)), 
+                                   factor(completed_data_ti3[[var3]], levels = c(0,1)))
 
 # 3. ROC & AUC
-roc_obj_cc3 <- roc(completed_data_cc3$J7, predicted_prob_cc3)
-auc_cc3 <- auc(roc_obj3)
+roc_obj_ti3 <- roc(completed_data_ti3[[var3]], predicted_prob_ti3)
+auc_ti3 <- auc(roc_obj3)
 
 # Print the results
-print(paste("Accuracy for Model 1:", acc_cc3))
-print(conf_matrix_cc3)
-print(paste("AUC for Model 1:", auc_cc3))
+print(paste("Accuracy for Model 1:", ati_ti3))
+print(conf_matrix_ti3)
+print(paste("AUC for Model 1:", auc_ti3))
 
 ###### 6.3.10. Summaries ######
 
 # Store results in a list of lists
 results <- list(
-  list(conf_matrix = conf_matrix_org1, AUC = paste("AUC for Model Org:", auc_org1)),
-  list(conf_matrix = conf_matrix_cc1, AUC = paste("AUC for Model 1:", auc_cc1)),
-  list(conf_matrix = conf_matrix_cc2, AUC = paste("AUC for Model 2:", auc_cc2)),
-  list(conf_matrix = conf_matrix_cc3, AUC = paste("AUC for Model 3:", auc_cc3))
+  list(conf_matrix = conf_matrix_org_ti, AUC = paste("AUC for Model Org:", auc_org_ti)),
+  list(conf_matrix = conf_matrix_ti1, AUC = paste("AUC for Model 1:", auc_ti1)),
+  list(conf_matrix = conf_matrix_ti2, AUC = paste("AUC for Model 2:", auc_ti2)),
+  list(conf_matrix = conf_matrix_ti3, AUC = paste("AUC for Model 3:", auc_ti3))
 )
 
 # Print results
