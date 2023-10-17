@@ -35,6 +35,7 @@ library(finalfit)
 library(tidyverse)
 library(kableExtra)
 library(mice)
+library(ggmice)
 ```
 
 ```{r Loading Data, echo=FALSE}
@@ -48,13 +49,13 @@ raw <- get(params$raw_data)
 
 ## 1. Introduction
 
-This document outlines the treatment of missing data before applying dimensionality reduction using Principal Component Analysis PCA  for the `r params$data_year` data frame, which represents the ICT usage in Italian enterprises survey for the year 2014.
+This document outlines the treatment of missing data before applying dimensionality reduction using Principal Component Analysis PCA  for the `r params$raw` data frame, which represents the ICT usage in Italian enterprises survey for the year 2014.
 
 ### 1.1. Data structure
 
 1.  **Observations:** `r nrow(dataset)`
 
-2.  **Variables:** `r ncol(dataset)`
+2.  **Variables:** `r ncol(raw)` 
 
 ::: {style="margin-left: +40px;"}
 <details>
@@ -73,6 +74,26 @@ This document outlines the treatment of missing data before applying dimensional
 
 3.  **Sectors classification before 2017:** `r nlevels(dataset$dom1)` distinct aggregation of sectors
 
+```{r observations by sector1, echo=FALSE, fig.height=7, fig.width=10}
+ict_14c %>%
+  group_by(dom1) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = dom1, y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Sectors", x = "Sectors", y = "Count") +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text( hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
 ::: {style="margin-left: +40px;"}
 <details>
 
@@ -89,6 +110,25 @@ knitr::kable(ateco_b17)
 :::
 
 4.  **Sectors classification after 2017:** `r nlevels(dataset$ateco_1)` distinct aggregation of sectors
+
+```{r observations by sector2, echo=FALSE, fig.height=5, fig.width=10}
+ict_14c %>%
+  group_by(ateco_1) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = ateco_1, y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Sectors", x = "Sectors", y = "Count") +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text( hjust = 1, size = 14),
+        axis.text.y = element_text( hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
 
 ::: {style="margin-left: +40px;"}
 <details>
@@ -107,6 +147,29 @@ knitr::kable(ateco_a17)
 
 5.  **Company sizes:** `r nlevels(dataset$clad4)`types based on the number of employees
 
+```{r observations by size, echo=FALSE, fig.height=5, fig.width=5}
+levels_clad4 = c("cl1", "cl2", "cl3", "cl4")
+labels_clad4 = c("Micro", "Small", "Medium", "Large")
+
+ict_14c %>%
+  group_by(clad4) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = factor(clad4, levels = levels_clad4, labels = labels_clad4), y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Company Size", x = "Company Size", y = "Count") +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text( hjust = 1, size = 14),
+        axis.text.y = element_text( hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
+
+
 ::: {style="margin-left: +40px;"}
 <details>
 
@@ -123,6 +186,28 @@ knitr::kable(size)
 :::
 
 6.  **Regions reported:** `r nlevels(dataset$rip)` at the level NUTS 1
+
+```{r observations by region, echo=FALSE, fig.height=5, fig.width=8}
+levels_rip4 = c("ITC", "ITF", "ITG", "ITH", "ITI")
+labels_rip4 = c("Northwest", "South", "Iisland", "Northeast", "Center")
+
+ict_14c %>%
+  group_by(rip) %>%
+  summarise(count = n()) %>% 
+  ggplot(aes(x = factor(rip, levels = levels_rip4, labels = labels_rip4), y = count)) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=count), vjust=-0.5) +
+  labs(title = "Observations per Region", x = "Region", y = "Count") +
+  theme_minimal()+ 
+  theme(plot.title = element_text(size = 18),
+        axis.text.x = element_text( hjust = 1, size = 14),
+        axis.text.y = element_text( hjust = 1, size = 14),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        strip.text = element_text(size = 14))
+```
 
 ::: {style="margin-left: +40px;"}
 <details>
@@ -473,4 +558,232 @@ long_data2 %>% filter(variable == "I2c") %>%  ggplot(aes(x = dom1, fill = catego
 ```
 
 
-## Imputation process 
+## 4. Imputation process
+
+The imputation process commenced with a focus on variables that had up to 60% of missing values. These variables form the foundation of our analysis and any missing values within them can skew our results. To address this, we utilized the mice package in R, a renowned package designed to handle missing data imputations. Recognizing the inherent diversity and variability in our dataset, a set of covariates were strategically chosen to guide the imputation process. Additionally other covariates were included as listed in each imputation process. Among these covariates,were included the sectors in which companies operated, the size of the company, and the region of operation. Given that these covariates inherently possessed different levels (sectors, sizes, and regions), it was imperative to implement a one-hot encoding approach. This transformed the categorical data into a format suitable for effective imputation, ensuring that the generated data is both representative and meaningful for subsequent analyses.
+
+### 4.1. Website use
+
+**Group of 9 variables with missing values**
+Companies services offered by the website. 
+
+-C8a. Possibility to place orders or reservations online (e.g. online shopping cart)
+
+-C8b. Online traceability of the order
+
+-C8c. Access to product catalogues or price lists
+
+-C8d. Ability to customize site content for regular visitors
+
+-C8e. Ability for site visitors to customize or design products
+
+-C8f. Privacy Policy Notices, Privacy Certification Mark, or Site Security Certification
+
+-C8g. Announcement of job vacancies or possibility of making job applications online
+
+-C8h. Links or references to the company's social media profiles
+
+-C8i. Possibility to submit complaints online (via email, web form, etc.)
+
+**Group of covariates used for imputations**
+
+-B5a. Using IT specialists who are part of the business group
+
+-B1. 	Employment of IT specialists
+
+-C9c. SM usage by type: multimedia content sharing websites 
+
+-dom1. economic sectors
+
+-clad4. size by No. of employees
+
+-rip. regions NUTS 1 for Italy
+
+
+#### 4.1.1. Traceplot after imputation
+
+The trace plots display the imputation parameters over 15 iterations for five imputed datasets (m=5). Key observations include:
+
+**- Convergence:** Most trajectories stabilize by the later iterations, indicating convergence.
+
+**- Variability:** There's some variability between imputed datasets, but trajectories are reasonably consistent across sets.
+
+**- Method:** The cart method was used for imputation. Compared to other methods like logreg (logistic regression) and pmm (predictive mean matching), cart (Classification and regression trees) demonstrated favorable performance in regression diagnostics.
+
+
+```{r model1 websites traceplot, echo=FALSE, fig.height=13, fig.width=13}
+
+plot_trace(imp_model_ws3)
+
+```
+
+#### 4.1.2. Post-imputation diagnostics
+
+**- Accuracy:** This is the proportion of correctly predicted classifications in the test set. A higher accuracy indicates better performance, but it can be misleading if classes are imbalanced.
+
+**- AUC:** AUC (Area under the ROC Curve) measures the ability of the model to distinguish between the positive and negative classes. An AUC of 0.5 suggests no discrimination (equivalent to random guessing), and an AUC of 1.0 indicates perfect discrimination. AUC is a widely used metric because it's less affected by imbalanced classes.
+
+**- Original data:** After removing the missing values using the original data the
+model gives the following results.
+
+`r paste("**Accuracy for Model Org:**", round(acc_org_ws,4))`
+
+`r paste("**AUC for Model Org:**", round(auc_org_ws,4))`
+
+**- Imputed data:** The cart imputed data marginally improved accuracy, though AUC observed a slight decrease. The consistency between the original and imputed data's performance metrics suggests that the imputation was successful.
+
+`r paste("**Accuracy for Model 3:**", round(acc_ws3,4))`
+
+`r paste("**AUC for Model 3:**", round(auc_ws3,4))`
+
+
+### 4.2. Cloud computing adoption
+
+**Group of 9 variables with missing values**
+
+
+Which cloud computing services used on the Internet are purchased by the company:
+-D2a. Email services
+
+-D2b. Office software (e.g., word processors, spreadsheets)
+
+-D2c. Enterprise database hosting
+
+-D2d. File storage
+
+-D2e. Finance and accounting software applications
+
+-D2f. CRM (Customer Relationship Management) software applications to manage information relating to your customers
+
+-D2g. Computing power to run the company's software
+
+How the cloud computing services used on the Internet purchased by the company are provided.
+
+-D3a. Through cloud service provider servers that are not reserved exclusively for the company
+
+-D3b. Through servers of the cloud service provider which are reserved exclusively for the company
+
+**Group of covariates used for imputations**
+
+-B5a. Using IT specialists who are part of the business group
+
+-C7. 	Websites
+
+-C9c. SM usage by type: multimedia content sharing websites 
+
+-dom1. economic sectors
+
+-clad4. size by No. of employees
+
+-rip. regions NUTS 1 for Italy
+
+#### 4.2.1. Traceplot after imputation
+
+**Convergence:** The trace plot indicates convergence for most of the variables, as many of the trajectories stabilize or show a consistent pattern across the iterations. This suggests that 15 iterations (maxit=15) may be adequate for the CART imputation method in reaching equilibrium for these variables.
+
+**Variability:** There's noticeable variability across the trajectories for different imputed datasets, but it remains within a reasonably close range. This is characteristic of multiple imputations and signifies the inherent randomness when estimating the missing data's distribution. While variability is expected, it's crucial that the range remains reasonably tight, as overly dispersed trajectories might hint at potential model inadequacies or the need for more iterations.
+
+
+**Methods:** The employed method for imputation is CART (m=7 imputed datasets). CART is a decision tree-based method that can handle non-linear patterns and interactions effectively. Comparing this with other methods such as logistic regression (logreg) and random forests (rf), CART tends to be more interpretable and can handle categorical data naturally. While logreg is more suited for linear relationships and rf is a robust ensemble technique, the selected method should ideally align with the data's characteristics and the specific challenges posed by its missing values.
+
+```{r model1 cloud computing traceplot, echo=FALSE, fig.height=13, fig.width=13}
+
+plot_trace(imp_model_cc3)
+
+```
+
+
+#### 4.2.2. Post-imputation diagnostics
+
+**- Original data:** After removing the missing values using the original data the model gives the following results.
+
+`r paste("**Accuracy for Model Org:**", round(acc_org_cc1,4))`
+
+`r paste("**AUC for Model Org:**", round(auc_org_cc1,4))`
+
+
+**- Imputed data:** Post-imputation using the CART method, the accuracy improved slightly to 0.7229. More notably, the AUC saw a significant boost, reaching 0.9032. This could suggest that the CART imputation process has added value to the predictive model by rectifying certain data biases or filling in critical missing patterns.
+
+`r paste("**Accuracy for Model 3:**", round(acc_cc3,4))`
+
+`r paste("**AUC for Model 3:**", round(auc_cc3,4))`
+
+
+### 4.3. Type of invoices adoption
+
+**Group of 9 variables with missing values**
+
+
+Which cloud computing services used on the Internet are purchased by the company:
+-D2a. Email services
+
+-D2b. Office software (e.g., word processors, spreadsheets)
+
+-D2c. Enterprise database hosting
+
+-D2d. File storage
+
+-D2e. Finance and accounting software applications
+
+-D2f. CRM (Customer Relationship Management) software applications to manage information relating to your customers
+
+-D2g. Computing power to run the company's software
+
+How the cloud computing services used on the Internet purchased by the company are provided.
+
+-D3a. Through cloud service provider servers that are not reserved exclusively for the company
+
+-D3b. Through servers of the cloud service provider which are reserved exclusively for the company
+
+**Group of covariates used for imputations**
+
+-B5a. Using IT specialists who are part of the business group
+
+-C7. 	Websites
+
+-C9c. SM usage by type: multimedia content sharing websites 
+
+-dom1. economic sectors
+
+-clad4. size by No. of employees
+
+-rip. regions NUTS 1 for Italy
+
+#### 4.3.1. Traceplot after imputation
+
+**Convergence:** 
+
+**Variability:** 
+
+
+**Methods:** 
+
+```{r model1 type of invoices traceplot, echo=FALSE, fig.height=13, fig.width=13}
+
+plot_trace(imp_model_ti3)
+
+```
+
+
+#### 4.3.2. Post-imputation diagnostics
+
+**- Original data:** After removing the missing values using the original data the model gives the following results.
+
+`r paste("**Accuracy for Model Org:**", round(acc_org_cc1,4))`
+
+`r paste("**AUC for Model Org:**", round(auc_org_cc1,4))`
+
+
+**- Imputed data:** Post-imputation using the CART method, the accuracy improved slightly to 0.7229. More notably, the AUC saw a significant boost, reaching 0.9032. This could suggest that the CART imputation process has added value to the predictive model by rectifying certain data biases or filling in critical missing patterns.
+
+`r paste("**Accuracy for Model 3:**", round(acc_cc3,4))`
+
+`r paste("**AUC for Model 3:**", round(auc_cc3,4))`
+
+
+
+
+
+
+
+
